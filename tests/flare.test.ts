@@ -19,12 +19,23 @@ const land = (t: LandingTechnique, difficulty: 'easy' | 'normal' = 'normal') => 
   const td = session.touchdown!;
   return { fpm: td.verticalSpeed * 196.85, kt: td.groundSpeed * 1.944, crashed: session.crashed, climbFpm: climbWhileCushioning * 196.85 };
 };
-const good = { flareFt: 75, flarePitchDeg: 12, cushionFt: 5 };
+const good = { flareFt: 60, flarePitchDeg: 10, cushionFt: 5 };
 
 describe('flare and cushion (last 100 ft)', () => {
-  it('a flare from 75 ft plus a cushion at about 5 ft lands softly', () => {
+  it('a flare at about 60 ft plus a cushion at about 5 ft lands softly', () => {
     expect(land(good).fpm).toBeLessThan(300);
     expect(land({ ...good, holdW: true }).fpm).toBeLessThan(300);
+  });
+
+  it('a flare lifts the helicopter a few feet, and a firm early flare balloons into a hard landing', () => {
+    let low = Infinity, rise = 0;
+    flyLanding(world, approach('normal'), good, (s) => {
+      if (s.phase === 'autorotation' && s.state.agl < 30) (low = Math.min(low, s.state.pos.y)), (rise = Math.max(rise, s.state.pos.y - low));
+      return false;
+    });
+    expect(rise * 3.28).toBeGreaterThan(3);
+    expect(rise * 3.28).toBeLessThan(15);
+    expect(land({ flareFt: 75, flarePitchDeg: 15, cushionFt: 5 }).fpm).toBeGreaterThan(600);
   });
 
   it('the collective cushions but never makes the helicopter climb', () => {

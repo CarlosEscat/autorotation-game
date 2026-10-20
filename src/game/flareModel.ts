@@ -11,7 +11,8 @@ import { Vec3, clamp, smoothstep } from '../sim/vec';
  *  - Sink settles toward the natural autorotation sink for the current airspeed
  *    (about 1300 fpm in a glide, more when slow), a little less in ground effect.
  *  - Flare: decelerating trades forward kinetic energy for lift. The sink is reduced
- *    by FLARE_EFFICIENCY * v * deceleration / g, so it fades as the speed bleeds off.
+ *    by FLARE_EFFICIENCY * v * deceleration / g, so it fades as the speed bleeds off;
+ *    a firm flare at glide speed lifts the helicopter a few feet.
  *  - Cushion: collective above the autorotation setting spends rotor RPM to cancel
  *    sink, CUSHION_DECEL m/s² at full collective. It can stop a descent but never
  *    turns it into a climb, and it fades as the rotor slows; a slow rotor
@@ -25,10 +26,11 @@ export const FLARE = {
   SINK_SLOW_EXTRA: 2.2, // m/s added at zero airspeed
   GROUND_EFFECT: 0.4, // fraction of sink removed at the skids, fading out by 10 m
   SINK_TAU: 1.5, // s for the sink to settle toward its target
-  FLARE_EFFICIENCY: 0.65,
+  FLARE_TAU: 0.7, // s for the flare's lift to take effect
+  FLARE_EFFICIENCY: 1.4, // lift from deceleration; a firm flare at ~60 kt rises the helicopter a few feet
   DECEL_TAU: 0.3, // s smoothing of the measured deceleration
   CUSHION_COLLECTIVE: [0.2, 0.65] as [number, number], // collective range from no cushion to full cushion
-  MAX_BALLOON: 0.6, // m/s: the most a flare can lift the helicopter this low (~120 fpm)
+  MAX_BALLOON: 3, // m/s: the most a flare can lift the helicopter this low (~600 fpm)
   CUSHION_DECEL: 9, // m/s² of sink cancelled at full cushion
   MIN_SETTLE: 0.5, // m/s (~100 fpm): the cushion slows the descent but always lets you settle
   /** Rotor RPM spent per second of full-strength cushioning, in % of nominal. */
@@ -70,7 +72,9 @@ export class FlareModel {
     const pull = clamp((s.collective - c0) / (c1 - c0), 0, 1);
     const cushion = pull * clamp((rpm - F.CUSHION_RPM_FLOOR) / (100 - F.CUSHION_RPM_FLOOR), 0, 1);
 
-    const tau = F.SINK_TAU + (F.WEAK_ROTOR_TAU - F.SINK_TAU) * weak;
+    // The flare's lift builds faster than the sink rebuilds.
+    const settle = -target > vyBefore ? F.SINK_TAU : F.FLARE_TAU;
+    const tau = settle + (F.WEAK_ROTOR_TAU - settle) * weak;
     let vy = vyBefore + (-target - vyBefore) * Math.min(1, dt / tau);
     // The rotor pays for the sink actually cancelled, not for the lever position.
     let used = 0;

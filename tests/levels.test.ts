@@ -80,12 +80,12 @@ describe('training levels', () => {
       });
       return { st: st!, session };
     };
-    for (const [flareFt, flarePitchDeg] of [[60, 15], [75, 10]]) {
+    for (const [flareFt, flarePitchDeg] of [[50, 10], [60, 8]]) {
       const { st, session } = run({ flareFt, flarePitchDeg, cushionFt: 5 });
       expect(st.state).toBe('passed');
       expect(world.areaAt(session.state.pos.x, session.state.pos.z)?.id).toBe('meadow');
     }
-    expect(run({ flareFt: 75, flarePitchDeg: 10, cushionFt: 0 }).st.reason).toMatch(/collective/);
+    expect(run({ flareFt: 55, flarePitchDeg: 10, cushionFt: 0 }).st.reason).toMatch(/collective/);
     expect(run({ flareFt: 0, flarePitchDeg: 0, cushionFt: 5 }).st.reason).toMatch(/flare/i);
   });
 
