@@ -1,0 +1,221 @@
+import * as THREE from 'three';
+import { LAKE, LandingArea, Surface, World } from '../world/world';
+import { mulberry32 } from '../world/rng';
+
+const SURFACE_COLORS: Record<Surface, number[]> = {
+  grass: [0x5f9a3c, 0x67a343, 0x5a9238],
+  field: [0x8cc653, 0x7dbb48],
+  strip: [0xa78655, 0x9a7a4b],
+  rough: [0x8d8a6a, 0x7c7a5c, 0x9a9477],
+  water: [0x3c6f9e],
+};
+
+/** Flat-shaded terrain with one colour per triangle, N64 style. */
+export function buildTerrain(world: World): THREE.Mesh {
+  const n = world.cells + 1;
+  const cell = world.size / world.cells;
+  const half = world.size / 2;
+  const tris = world.cells * world.cells * 2;
+  const pos = new Float32Array(tris * 9);
+  const col = new Float32Array(tris * 9);
+  const rnd = mulberry32(42);
+  const color = new THREE.Color();
+  let p = 0;
+
+  const vx = (i: number) => -half + i * cell;
+  const h = (i: number, j: number) => world.heights[j * n + i];
+
+  const pushTri = (ax: number, az: number, ay: number, bx: number, bz: number, by: number, cx: number, cz: number, cy: number) => {
+    const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
+    const surface = world.surfaceAt(mx, mz);
+    const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
+    const palette = SURFACE_COLORS[surface === 'water' ? 'grass' : surface];
+    let hex = palette[Math.floor(rnd() * palette.length)];
+    if (area) hex = mowStripe(area, mx, mz) ? 0x95cf5c : 0x7fbc4a;
+    color.setHex(hex);
+    const y = (ay + by + cy) / 3;
+    // Darken low ground and lighten hilltops a touch, plus distant rim tint.
+    const shade = 0.88 + Math.max(-0.12, Math.min(0.18, y / 160));
+    const r = Math.hypot(mx, mz);
+    if (r > 1200 && surface === 'grass') color.lerp(new THREE.Color(0x6f7f5a), Math.min(1, (r - 1200) / 400));
+    if (ay < world.waterLevel + 1.5 && Math.hypot(mx - LAKE.x, mz - LAKE.z) < LAKE.r * 1.2) color.setHex(0xb8a675);
+    color.multiplyScalar(shade);
+    for (const [x, yy, z] of [[ax, ay, az], [bx, by, bz], [cx, cy, cz]]) {
+      pos[p] = x; pos[p + 1] = yy; pos[p + 2] = z;
+      col[p] = color.r; col[p + 1] = color.g; col[p + 2] = color.b;
+      p += 3;
+    }
+  };
+
+  for (let j = 0; j < world.cells; j++) {
+    for (let i = 0; i < world.cells; i++) {
+      const x0 = vx(i), x1 = vx(i + 1), z0 = vx(j), z1 = vx(j + 1);
+      // Same diagonal as World.heightAt: (i+1,j) — (i,j+1). Counter-clockwise seen from above.
+      pushTri(x0, z0, h(i, j), x0, z1, h(i, j + 1), x1, z0, h(i + 1, j));
+      pushTri(x1, z0, h(i + 1, j), x0, z1, h(i, j + 1), x1, z1, h(i + 1, j + 1));
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+}
+
+function mowStripe(a: LandingArea, x: number, z: number) {
+  const dx = x - a.cx, dz = z - a.cz;
+  const lx = dx * Math.cos(a.rotation) - dz * Math.sin(a.rotation);
+  return Math.floor((lx + 1000) / 20) % 2 === 0;
+}
+
+export function buildWater(world: World): THREE.Mesh {
+  const geo = new THREE.CircleGeometry(LAKE.r * 1.15, 24);
+  geo.rotateX(-Math.PI / 2);
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3f7fb8, transparent: true, opacity: 0.88 }));
+  m.position.set(LAKE.x, world.waterLevel, LAKE.z);
+  return m;
+}
+
+export function buildObstacles(world: World): THREE.Group {
+  const group = new THREE.Group();
+  const trees = world.obstacles.filter((o) => o.kind === 'tree');
+  const rocks = world.obstacles.filter((o) => o.kind === 'rock');
+  const m4 = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const sv = new THREE.Vector3();
+  const pv = new THREE.Vector3();
+  const tint = new THREE.Color();
+  const rnd = mulberry32(7);
+
+  const trunkGeo = new THREE.CylinderGeometry(0.06, 0.09, 1, 5).translate(0, 0.5, 0);
+  const pineGeo = new THREE.ConeGeometry(0.25, 0.8, 6).translate(0, 0.6, 0);
+  const roundGeo = new THREE.IcosahedronGeometry(0.3, 0).translate(0, 0.62, 0);
+  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x6b4a2b, flatShading: true }), trees.length);
+  const pines = trees.filter((t) => t.variant === 0);
+  const rounds = trees.filter((t) => t.variant === 1);
+  const pineMesh = new THREE.InstancedMesh(pineGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), pines.length);
+  const roundMesh = new THREE.InstancedMesh(roundGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), rounds.length);
+
+  trees.forEach((t, i) => {
+    sv.set(t.height, t.height, t.height);
+    m4.compose(pv.set(t.x, t.base - 0.3, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
+    trunks.setMatrixAt(i, m4);
+  });
+  const fill = (list: typeof trees, mesh: THREE.InstancedMesh, base: number) =>
+    list.forEach((t, i) => {
+      sv.set(t.height, t.height, t.height);
+      m4.compose(pv.set(t.x, t.base - 0.3, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
+      mesh.setMatrixAt(i, m4);
+      mesh.setColorAt(i, tint.setHex(base).multiplyScalar(0.8 + rnd() * 0.35));
+    });
+  fill(pines, pineMesh, 0x2f6b34);
+  fill(rounds, roundMesh, 0x4d8a2e);
+  group.add(trunks, pineMesh, roundMesh);
+
+  const rockGeo = new THREE.DodecahedronGeometry(1, 0);
+  const rockMesh = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), rocks.length);
+  rocks.forEach((r, i) => {
+    sv.set(r.radius, r.height * 0.8, r.radius * 0.9);
+    m4.compose(pv.set(r.x, r.base + r.height * 0.25, r.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
+    rockMesh.setMatrixAt(i, m4);
+    rockMesh.setColorAt(i, tint.setHex(0x8a8580).multiplyScalar(0.8 + rnd() * 0.3));
+  });
+  group.add(rockMesh);
+
+  for (const b of world.obstacles.filter((o) => o.kind === 'building')) {
+    const house = new THREE.Group();
+    const walls = new THREE.Mesh(new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!), new THREE.MeshLambertMaterial({ color: b.w! > 12 ? 0xa33a2c : 0xd9cfb4, flatShading: true }));
+    walls.position.y = (b.height * 0.65) / 2;
+    const roofGeo = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
+    roofGeo.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75);
+    const roof = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: 0x4a4a52, flatShading: true }));
+    roof.position.y = b.height * 0.65 + (b.height * 0.35) / 2;
+    house.add(walls, roof);
+    house.position.set(b.x, b.base, b.z);
+    house.rotation.y = b.rot ?? 0;
+    group.add(house);
+  }
+  return group;
+}
+
+/** Corner markers and a windsock for each landing area. */
+export function buildAreaMarkers(world: World, windFromDeg: number, windKt: number): THREE.Group {
+  const group = new THREE.Group();
+  const markerMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  const sockMat = new THREE.MeshLambertMaterial({ color: 0xff6a1a, flatShading: true });
+  const poleMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+  for (const a of world.areas) {
+    const c = Math.cos(a.rotation), s = Math.sin(a.rotation);
+    const toWorld = (lx: number, lz: number) => ({ x: a.cx + lx * c + lz * s, z: a.cz - lx * s + lz * c });
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const p = toWorld(sx * a.halfWidth, sz * a.halfLength);
+      const m = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.2, 4), markerMat);
+      m.position.set(p.x, world.heightAt(p.x, p.z) + 0.6, p.z);
+      group.add(m);
+    }
+    const p = toWorld(a.halfWidth + 6, -a.halfLength * 0.6);
+    const ground = world.heightAt(p.x, p.z);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6, 4), poleMat);
+    pole.position.set(p.x, ground + 3, p.z);
+    const sockGeo = new THREE.ConeGeometry(0.45, 2.6, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 1.3);
+    const sock = new THREE.Mesh(sockGeo, sockMat);
+    sock.material.side = THREE.DoubleSide;
+    // The sock (wide end at the pole, along +Z) streams downwind: heading = from + 180°.
+    const to = ((windFromDeg + 180) * Math.PI) / 180;
+    sock.position.set(p.x, ground + 5.8, p.z);
+    sock.rotation.order = 'YXZ';
+    sock.rotation.y = Math.atan2(Math.sin(to), -Math.cos(to));
+    sock.rotation.x = windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15);
+    group.add(pole, sock);
+  }
+  return group;
+}
+
+/** Translucent column and ring marking the currently selected landing area. */
+export function buildTargetBeacon(): THREE.Group {
+  const g = new THREE.Group();
+  const col = new THREE.Mesh(
+    new THREE.CylinderGeometry(3, 3, 140, 8, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
+  );
+  col.position.y = 70;
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(14, 0.9, 4, 20), new THREE.MeshBasicMaterial({ color: 0xffe14d }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.6;
+  g.add(col, ring);
+  return g;
+}
+
+export function buildSky(): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(4000, 16, 10);
+  const colors: number[] = [];
+  const top = new THREE.Color(0x2f6fd0), horizon = new THREE.Color(0xbfdcf2);
+  const c = new THREE.Color();
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const t = Math.max(0, p.getY(i) / 4000);
+    c.copy(horizon).lerp(top, Math.pow(t, 0.6));
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+}
+
+export function buildClouds(): THREE.Group {
+  const g = new THREE.Group();
+  const rnd = mulberry32(11);
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x777777 });
+  for (let i = 0; i < 26; i++) {
+    const cloud = new THREE.Group();
+    for (let k = 0; k < 4; k++) {
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(30 + rnd() * 30, 0), mat);
+      puff.position.set(k * 40 - 60, rnd() * 15, rnd() * 30);
+      puff.scale.y = 0.5;
+      cloud.add(puff);
+    }
+    const a = rnd() * Math.PI * 2, r = 600 + rnd() * 1800;
+    cloud.position.set(Math.cos(a) * r, 650 + rnd() * 300, Math.sin(a) * r);
+    g.add(cloud);
+  }
+  return g;
+}
