@@ -27,6 +27,17 @@ export interface FlightConfig {
   failureDelay: number; // s of normal flight before the failure
   /** 'easy' adds arcade assists: slower NR decay, auto-cushion near the ground, wider touchdown limits. */
   difficulty?: Difficulty;
+  /** Where the flight starts; defaults to START. `autorotating` starts already in a power-off glide. */
+  start?: StartOverride;
+  /** Set false to turn off easy mode's auto-cushion (the slower NR decay stays). */
+  cushion?: boolean;
+}
+
+export interface StartOverride {
+  x: number;
+  z: number;
+  yaw: number;
+  autorotating?: { sinkMs: number; collective: number; pitchDeg?: number; rpmPct?: number };
 }
 
 export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 8, windFromDeg: 0, failureDelay: 4 };
@@ -84,17 +95,35 @@ export class FlightSession {
     // Air moves toward the opposite of where it comes from. North = -Z, east = +X.
     this.wind = scale(v3(-Math.sin(from), 0, Math.cos(from)), config.windKt / MS_TO_KT);
     this.env = { wind: this.wind, groundHeight: world.heightAt };
-    const ground = world.heightAt(START.x, START.z);
+    const start = config.start ?? START;
+    const ground = world.heightAt(start.x, start.z);
     this.state = trimmedState({
-      x: START.x,
+      x: start.x,
       y: ground + A.skidHeight + config.altitudeFt / M_TO_FT,
-      z: START.z,
-      yaw: START.yaw,
+      z: start.z,
+      yaw: start.yaw,
       airspeed: config.airspeedKt / MS_TO_KT,
       wind: this.wind,
     });
     updateDerived(this.state, this.env);
     this.rec.start(this.state);
+    if (config.start?.autorotating) this.enterAutorotation(config.start.autorotating);
+  }
+
+  /** Start in a settled power-off glide instead of powered cruise. */
+  private enterAutorotation(e: NonNullable<StartOverride['autorotating']>) {
+    const s = this.state;
+    failEngine(s);
+    s.engineAvail = 0;
+    s.yawKick = 0;
+    s.collective = e.collective;
+    s.vel.y = -e.sinkMs;
+    if (e.pitchDeg !== undefined) s.pitch = s.pitchCmd = e.pitchDeg * DEG;
+    if (e.rpmPct !== undefined) s.omega = (A.rotorOmega0 * e.rpmPct) / 100;
+    updateDerived(s, this.env);
+    this.rec.onFailure(s);
+    this.rec.reactionTime = 0;
+    this.phase = 'autorotation';
   }
 
   get easy(): boolean {
@@ -151,7 +180,7 @@ export class FlightSession {
   private applyAssists(omegaBefore: number, dt: number) {
     const s = this.state;
     if (s.omega < omegaBefore) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
-    if (this.phase !== 'autorotation') return;
+    if (this.phase !== 'autorotation' || this.config.cushion === false) return;
 
     const agl = s.agl;
     if (agl > 20) return;

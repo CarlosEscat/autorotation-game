@@ -3,9 +3,9 @@ import { DEG } from '../sim/vec';
 import { Guidance } from './guidance';
 import { FlightSession } from './session';
 
-type Mode = 'keyboard' | 'touch';
+export type Mode = 'keyboard' | 'touch';
 
-const K = {
+export const KEY_WORDS = {
   keyboard: { down: 'S', up: 'W', fwd: '↑', aft: '↓', turn: '← →', target: 'T' },
   touch: { down: 'slide COLL down', up: 'raise COLL', fwd: 'stick forward', aft: 'stick back', turn: 'stick left/right', target: 'TGT' },
 };
@@ -16,7 +16,7 @@ const K = {
  */
 export function contextualHint(session: FlightSession, g: Guidance | null, mode: Mode): string | null {
   const s = session.state;
-  const k = K[mode];
+  const k = KEY_WORDS[mode];
   const kt = s.airspeed * MS_TO_KT;
   const t = session.timeSinceFailure;
 
