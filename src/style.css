@@ -86,9 +86,11 @@ html, body {
 
 /* Desktop: instruments along the bottom (over the cockpit panel), hints and lessons at the top centre. */
 @media (pointer: fine) and (min-width: 900px) and (min-height: 500px) {
-  body:not(.touch) .hud-left { top: auto; bottom: calc(14px + var(--safe-b)); }
-  body:not(.touch) .hud-right { top: auto; bottom: calc(14px + var(--safe-b)); flex-direction: row; align-items: flex-end; }
-  body:not(.touch) .warnings { top: auto; bottom: calc(150px + var(--safe-b)); }
+  body:not(.touch) .hud { --hud-bottom: calc(12vh + var(--safe-b)); }
+  body:not(.touch) .hud-left { top: auto; bottom: var(--hud-bottom); }
+  body:not(.touch) .hud-right { top: auto; bottom: var(--hud-bottom); flex-direction: row; align-items: flex-end; }
+  body:not(.touch) .hud-center { bottom: var(--hud-bottom); }
+  body:not(.touch) .warnings { top: auto; bottom: calc(var(--hud-bottom) + 136px); }
   body:not(.touch) .hint { bottom: auto; top: calc(72px + var(--safe-t)); }
 }
 
