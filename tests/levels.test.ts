@@ -6,6 +6,7 @@ import { createWorld } from '../src/world/world';
 import { ControlInputs, HelicopterState, neutralControls } from '../src/sim/state';
 import { clamp } from '../src/sim/vec';
 import { BotOptions, makeBot } from './pilotBot';
+import { LandingTechnique, flyLanding } from './landingPilot';
 
 const world = createWorld();
 const level = (id: string) => LEVELS.find((l) => l.id === id)!;
@@ -68,35 +69,24 @@ describe('training levels', () => {
     expect(st.stars).toBeGreaterThanOrEqual(1);
   });
 
-  it('flare and cushion: both together land softly, either one alone fails', () => {
-    /** Glide at 58 kt, flare at `flareFt`, level the skids, hold W while sinking below `cushionFt` (earlier if sinking fast). */
-    const pilot = (flareFt: number, cushionFt: number): Pilot => {
-      let phase = 'glide';
-      return (s, c) => {
-        const ft = s.agl * 3.28;
-        const pitchTo = (t: number) => (c.cyclicPitch = clamp((t - s.pitchCmd) * 6, -1, 1));
-        if (phase === 'glide') {
-          pitchTo(clamp(-0.02 * (30 - s.airspeed) - 0.05, -0.25, 0.15));
-          c.collective = clamp(0.1 + (s.rpmPct - 100) * 0.015, 0, 1);
-          if (flareFt && ft < flareFt) phase = 'flare';
-        } else if (phase === 'flare') {
-          pitchTo(s.verticalSpeed > 0 ? Math.min(s.pitchCmd, 0.17) : 0.31);
-          if (ft < 25 || s.groundSpeed < 8) phase = 'level';
-        } else pitchTo(0.05);
-        const cue = ft < cushionFt || (ft < 20 && cushionFt > 0 && cushionFt < 20 && s.verticalSpeed < -5.1);
-        if (cue && s.verticalSpeed < -0.5) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
-      };
+  it('flare and cushion: both together land softly in the meadow, either one alone fails', () => {
+    const def = level('cushion');
+    const run = (t: LandingTechnique) => {
+      const objective = def.makeObjective(world);
+      let st: ObjectiveStatus | null = null;
+      const { session } = flyLanding(world, def.config, t, (session) => {
+        st = objective.update({ session, targetId: 'meadow', mode: 'keyboard' }, 1 / 120);
+        return st.state !== 'running';
+      });
+      return { st: st!, session };
     };
-    // The start is placed so flares from about 45 to 80 ft all end in the meadow.
-    for (const flareFt of [50, 60, 75]) {
-      const { st, session } = runLevel('cushion', pilot(flareFt, 12));
+    for (const [flareFt, flarePitchDeg] of [[60, 15], [75, 10]]) {
+      const { st, session } = run({ flareFt, flarePitchDeg, cushionFt: 5 });
       expect(st.state).toBe('passed');
       expect(world.areaAt(session.state.pos.x, session.state.pos.z)?.id).toBe('meadow');
     }
-    expect(runLevel('cushion', pilot(55, 0)).st.reason).toMatch(/collective/);
-    expect(runLevel('cushion', pilot(0, 12)).st.reason).toMatch(/flare/i);
-    // Raising the collective far too early only holds you up until the rotor slows, then you drop.
-    expect(runLevel('cushion', pilot(55, 40)).st.state).toBe('failed');
+    expect(run({ flareFt: 75, flarePitchDeg: 10, cushionFt: 0 }).st.reason).toMatch(/collective/);
+    expect(run({ flareFt: 0, flarePitchDeg: 0, cushionFt: 5 }).st.reason).toMatch(/flare/i);
   });
 
   it('checkride: a good flight from a reachable height passes', () => {

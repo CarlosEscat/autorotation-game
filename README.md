@@ -57,7 +57,7 @@ Cyclic pitch is an *attitude command*: holding a key changes the pitch attitude,
 
 Coaching hints (on by default, toggle in the menu) suggest the next action in context. They never move the controls.
 
-**Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that. In both modes, below about 80 ft a power-off helicopter can't climb back up: the flare brakes the speed and only lifts a few feet, and raising the collective cushions the touchdown (best at about 10–12 ft) instead of climbing.
+**Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that.
 
 ## Training
 
@@ -81,6 +81,7 @@ src/
     scoring.ts      FlightRecorder (metrics per fixed step) and computeScore()
     guidance.ts     Advisory bearing / reach info for the HUD
     hints.ts        Contextual coaching text
+    flareModel.ts   Energy-based flare and cushion below ~100 ft AGL
     levels.ts       Training levels: start overrides, objectives (goal, instructions, stars), unlocking
     fixedStep.ts    Frame-time → fixed-step accumulator
     game.ts         State machine, main loop, wiring (the only module that touches everything)
@@ -117,6 +118,17 @@ The model is a simplified, physically motivated autorotation model, tuned for ar
 - **Wind:** a steady air mass, so airspeed and ground speed differ and landing into wind matters.
 
 Nothing is random at run time: the world is seeded, and identical inputs produce identical outcomes and scores. A test asserts this.
+
+### Flare and cushion (last 100 ft)
+
+Below about 100 ft AGL an energy-based model (`src/game/flareModel.ts`) takes over the vertical speed and rotor-RPM losses; horizontal motion, attitude and the flare's RPM gain still come from the flight model. It follows the textbook sequence:
+
+- **Sink** settles toward the natural autorotation sink for the current airspeed (about 1300 fpm in a glide, more when slow), less in ground effect.
+- **Flare:** decelerating trades forward kinetic energy for lift, so the sink comes down progressively and fades as the speed bleeds off. A flare can lift the helicopter only slightly this low.
+- **Cushion:** raising the collective spends rotor RPM to cancel sink, paying for the sink actually cancelled. It stops a descent but never turns it into a climb, and fades below 70 % NR. Pulling too early leaves you hanging for a second or two, then dropping.
+- Easy and Realistic differ only in the RPM cost of the cushion.
+
+Recommended technique: flare at 50–75 ft, level the skids at about 10 ft, raise the collective at about 5 ft and ease off once the sink stops.
 
 ### Touchdown, damage and outcomes
 

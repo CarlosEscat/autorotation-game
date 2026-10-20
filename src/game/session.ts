@@ -14,6 +14,7 @@ import {
   describeStrike,
   evaluateTouchdown,
 } from './landing';
+import { FlareModel } from './flareModel';
 import { FlightRecorder, ScoreResult, computeScore } from './scoring';
 
 export type Difficulty = 'easy' | 'normal';
@@ -45,8 +46,6 @@ export interface StartOverride {
 export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 8, windFromDeg: 0, failureDelay: 4 };
 /** Touchdown limits are multiplied by this in easy mode. */
 const EASY_LENIENCY = 2.5;
-/** Share of the rotor-RPM cost still paid for lift the near-ground climb cap holds back, in easy mode. */
-const EASY_CUSHION_RPM_COST = 0.5;
 
 export const START = { x: 0, z: 1100, yaw: 0 };
 
@@ -90,6 +89,7 @@ export class FlightSession {
   tipOver = 0;
   private groundTime = 0;
   private assistAnnounced = false;
+  private flare = new FlareModel();
 
   constructor(
     readonly world: World,
@@ -153,9 +153,15 @@ export class FlightSession {
     }
 
     const omegaBefore = s.omega;
+    const vyBefore = s.vel.y;
     stepFlight(s, c, this.env, dt);
-    if (this.easy) this.applyAssists(omegaBefore, dt);
-    if (this.phase === 'autorotation') this.limitClimbNearGround(omegaBefore);
+    // Easy: the rotor loses RPM more slowly while descending (climbing spends it at the real rate).
+    if (this.easy && s.omega < omegaBefore && s.vel.y < 0) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
+    if (this.phase === 'autorotation') {
+      this.flare.apply(s, this.wind, vyBefore, omegaBefore, this.easy, dt);
+      updateDerived(s, this.env);
+      if (this.easy && this.config.cushion !== false) this.autoCushion(dt);
+    }
     this.rec.record(s, dt);
 
     // In-flight structural limits.
@@ -175,21 +181,9 @@ export class FlightSession {
     if (contact) this.onTouchdown(contact);
   }
 
-  /**
-   * Easy-mode arcade help layered on top of the physics: the rotor loses RPM
-   * more slowly while descending (and near the ground, where climbing is capped
-   * anyway), and unless `cushion` is off an auto-cushion limits the sink rate,
-   * bleeds off ground speed and levels the skids.
-   */
-  private applyAssists(omegaBefore: number, dt: number) {
+  /** Easy-mode landing assist: limits the sink rate, bleeds off ground speed and levels the skids. */
+  private autoCushion(dt: number) {
     const s = this.state;
-    // Climbing spends rotor energy at the real rate, so a balloon dies out quickly. Near the
-    // ground the climb cap below already prevents ballooning, so the cushion keeps the slow rate.
-    if (s.omega < omegaBefore && (s.vel.y < 0 || s.agl < 12)) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
-    if (this.phase !== 'autorotation') return;
-
-    if (this.config.cushion === false) return;
-
     const agl = s.agl;
 
     if (agl > 20) return;
@@ -209,24 +203,6 @@ export class FlightSession {
       s.pitch += (clamp(s.pitch, -3 * DEG, 6 * DEG) - s.pitch) * level;
       s.roll -= s.roll * level;
     }
-  }
-
-  /**
-   * Near the ground (below ~80 ft) a power-off helicopter can't climb back up much: a
-   * flare still brakes the speed but only lifts a few feet, and the collective only
-   * cushions. The cap shrinks to a ~160 fpm settle at the skids, so holding the collective
-   * doesn't float.
-   * The held-back lift still costs rotor RPM, so pulling too early leaves you hanging
-   * until the rotor slows; easy mode refunds part of it to widen the cushion window.
-   */
-  private limitClimbNearGround(omegaBefore: number) {
-    const s = this.state;
-    if (s.agl >= 25) return;
-    // ~300 fpm at 80 ft, ~60 fpm at 50 ft, none below ~35 ft, a ~160 fpm settle at the skids.
-    const maxClimb = s.agl < 15 ? -0.8 + 1.1 * (s.agl / 15) : 0.3 + 1.2 * ((s.agl - 15) / 10);
-    if (s.vel.y <= maxClimb) return;
-    s.vel.y = maxClimb;
-    if (this.easy && s.omega < omegaBefore) s.omega = omegaBefore + (s.omega - omegaBefore) * EASY_CUSHION_RPM_COST;
   }
 
   private onStrike(strike: StrikeResult) {

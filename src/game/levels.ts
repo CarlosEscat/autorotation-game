@@ -268,17 +268,17 @@ export const LEVELS: LevelDef[] = [
     id: 'cushion',
     num: 6,
     title: 'Flare and cushion',
-    teaches: 'Flare at about 50 ft, level the skids, then cushion with the collective at about 12 ft.',
+    teaches: 'Flare at 50–75 ft, level the skids at about 10 ft, then cushion with the collective at about 5 ft.',
     // No auto-cushion: the flare has to take off the speed and the collective the last of the sink.
-    // Easy's rotor keeps a late pull from ballooning; touchdown limits a little tighter than easy.
+    // Easy rotor (the cushion costs less RPM); touchdown limits a little tighter than easy.
     config: {
       ...BASE,
       cushion: false,
       leniency: 2,
       altitudeFt: 200,
       airspeedKt: 60,
-      // Placed so flares between about 45 and 80 ft, at any sensible glide speed, end in the meadow.
-      start: { x: -380, z: 740, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } },
+      // Placed so the recommended flare (60–75 ft, 10–15° nose up) ends in the meadow.
+      start: { x: -380, z: 700, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } },
     },
     target: 'meadow',
     gates: [],
@@ -292,8 +292,8 @@ export const LEVELS: LevelDef[] = [
           const td = r.touchdown!;
           const vs = td.verticalSpeed;
           if (td.pitch / DEG > 10) return fail(`Touched down ${Math.round(td.pitch / DEG)}° nose up. Level the skids (${k.fwd}) after the flare.`);
-          if (vs > 2.54 && flareAt !== null && flareAt > 24) return fail(`Flared too high (${ft(flareAt)} ft): you stopped up there and dropped. Flare at about 50–60 ft.`);
-          if (vs > 2.54) return fail(`Touched down at ${fpm(vs)} fpm. Raise the collective (${k.up}) in the last few feet to cushion.`);
+          if (vs > 2.54 && flareAt !== null && flareAt > 30) return fail(`Flared too high (${ft(flareAt)} ft): you stopped up there and dropped. Flare at about 50–75 ft.`);
+          if (vs > 2.54) return fail(`Touched down at ${fpm(vs)} fpm. Raise the collective (${k.up}) at about 5 ft to cushion, not earlier.`);
           const soft = vs < 1.27 && td.groundSpeed < 4.1;
           return pass(soft ? 3 : vs < 1.8 ? 2 : 1, `Touched down at ${Math.max(0, fpm(vs))} fpm, ${Math.round(td.groundSpeed * MS_TO_KT)} kt.`);
         }
@@ -302,15 +302,13 @@ export const LEVELS: LevelDef[] = [
         if (flareAt === null) {
           const kt = s.airspeed * MS_TO_KT;
           if (s.agl > 20) {
-            return { text: kt < 55 || kt > 70 ? `Hold 55–65 kt (${kt < 55 ? k.fwd : k.aft}). Flare at about 50–60 ft.` : `Steady glide. At about 50–60 ft, flare: pull the cyclic back (${k.aft}).` };
+            return { text: kt < 55 || kt > 70 ? `Hold 55–65 kt (${kt < 55 ? k.fwd : k.aft}). Flare at about 50–75 ft.` : `Steady glide. At about 50–75 ft, flare: pull the cyclic back (${k.aft}).` };
           }
           return { text: `FLARE NOW: pull the cyclic back (${k.aft}).` };
         }
-        if (s.agl > 9 && s.groundSpeed > 8) return { text: 'Good flare: speed and sink are coming off. Hold it.' };
-        // Cushion at about 12 ft, or from 20 ft when sinking faster than ~1000 fpm.
-        const cushionNow = s.agl < 3.7 || (s.agl < 6 && s.verticalSpeed < -5.1);
-        if (!cushionNow) return { text: `Level the skids now (${k.fwd}), nose just above the horizon. Cushion at about 12 ft.` };
-        return { text: `NOW: raise the collective (${k.up}) to cushion the touchdown.` };
+        if (s.agl > 4.5 && s.groundSpeed > 8) return { text: 'Good flare: speed and sink are coming off. Hold it.' };
+        if (s.agl > 1.8) return { text: `Level the skids now (${k.fwd}), nose just above the horizon. Cushion at about 5 ft.` };
+        return { text: `NOW: raise the collective (${k.up}) to cushion. Ease off (${k.down}) once the sink stops.` };
       });
     },
   },

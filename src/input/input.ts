@@ -72,7 +72,8 @@ export class InputManager {
       c.collective = this.touchCollective;
       this.touchCollective = null;
     }
-    if (this.keyCollective !== 0) c.collective = clamp(c.collective + this.keyCollective * 0.75 * dt, 0, 1);
+    // Full travel in about 0.7 s, quick enough for a cushion in the last few feet.
+    if (this.keyCollective !== 0) c.collective = clamp(c.collective + this.keyCollective * 1.5 * dt, 0, 1);
 
     const touch = this.touchActive;
     c.cyclicPitch = clamp(touch ? this.touchPitch : this.smPitch, -1, 1);
