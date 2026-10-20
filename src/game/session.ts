@@ -1,7 +1,7 @@
 import { AIRCRAFT as A, M_TO_FT, MS_TO_KT } from '../sim/aircraft';
 import { SIM_DT, failEngine, stepFlight, trimmedState, updateDerived } from '../sim/flightModel';
 import { ControlInputs, FlightEnvironment, HelicopterState } from '../sim/state';
-import { DEG, Vec3, clamp, hlen, scale, v3 } from '../sim/vec';
+import { DEG, Vec3, clamp, hlen, scale, smoothstep, v3 } from '../sim/vec';
 import { World } from '../world/world';
 import {
   GroundContact,
@@ -192,8 +192,10 @@ export class FlightSession {
       this.events.push({ type: 'assist', text: 'LANDING ASSIST' });
     }
     const t = 1 - agl / 20; // 0 at 20 m, 1 at the ground
+    // Only a healthy rotor can hold the sink back: the help fades out between 85 % and 75 % NR.
+    const rotorHelp = smoothstep(75, 85, s.rpmPct);
     const maxSink = 1 + agl * 0.35;
-    if (-s.vel.y > maxSink) s.vel.y += (-maxSink - s.vel.y) * Math.min(1, dt * 4);
+    if (-s.vel.y > maxSink) s.vel.y += (-maxSink - s.vel.y) * Math.min(1, dt * 4) * rotorHelp;
     const brake = Math.exp(-dt * 0.9 * t);
     s.vel.x = this.wind.x + (s.vel.x - this.wind.x) * brake;
     s.vel.z = this.wind.z + (s.vel.z - this.wind.z) * brake;

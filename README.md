@@ -125,7 +125,7 @@ Below about 100 ft AGL an energy-based model (`src/game/flareModel.ts`) takes ov
 
 - **Sink** settles toward the natural autorotation sink for the current airspeed (about 1300 fpm in a glide, more when slow), less in ground effect.
 - **Flare:** decelerating trades forward kinetic energy for lift, so the sink comes down progressively and fades as the speed bleeds off. A flare can lift the helicopter only slightly this low.
-- **Cushion:** raising the collective spends rotor RPM to cancel sink, paying for the sink actually cancelled. It stops a descent but never turns it into a climb, and fades below 70 % NR. Pulling too early leaves you hanging for a second or two, then dropping.
+- **Cushion:** raising the collective spends rotor RPM to cancel sink, paying for the sink actually cancelled. It slows the descent to a ~100 fpm settle but never holds you up or climbs, and fades between 100 % and 80 % NR. Below 90 % NR a slowing rotor adds sink again, so pulling too early (or holding the collective up) settles you briefly, then drops you. Easy's auto-cushion also fades out as rotor RPM falls.
 - Easy and Realistic differ only in the RPM cost of the cushion.
 
 Recommended technique: flare at 50–75 ft, level the skids at about 10 ft, raise the collective at about 5 ft and ease off once the sink stops.

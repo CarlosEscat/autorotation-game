@@ -45,6 +45,12 @@ describe('flare and cushion (last 100 ft)', () => {
     expect(r.crashed).toBe(true);
   });
 
+  it('holding the collective up too early does not float: once the rotor weakens it sinks again', () => {
+    for (const difficulty of ['easy', 'normal'] as const) {
+      expect(land({ ...good, cushionFt: 25, holdW: true }, difficulty).fpm).toBeGreaterThan(800);
+    }
+  });
+
   it('easy mode is more forgiving than realistic', () => {
     const late = { ...good, cushionFt: 8 };
     expect(land(late, 'easy').fpm).toBeLessThan(land(late, 'normal').fpm);
