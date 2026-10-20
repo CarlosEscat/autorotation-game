@@ -129,7 +129,9 @@ export class Hud {
     const kt = s.airspeed * MS_TO_KT;
     e.ias.textContent = kt.toFixed(0);
     e.ias.dataset.s = !f.engineOut ? 'neutral' : kt >= 50 && kt <= 75 ? 'good' : kt >= 40 && kt <= 85 ? 'warn' : 'bad';
-    e.alt.textContent = Math.max(0, Math.round((s.agl * M_TO_FT) / 10) * 10).toFixed(0);
+    // Feet matter close to the ground (flare and cushion timing); above 100 ft round to 10.
+    const altFt = Math.max(0, s.agl * M_TO_FT);
+    e.alt.textContent = (altFt < 100 ? Math.round(altFt) : Math.round(altFt / 10) * 10).toFixed(0);
     const fpm = s.verticalSpeed * MS_TO_FPM;
     e.vsi.textContent = `${fpm > 50 ? '▲' : fpm < -50 ? '▼' : ''}${Math.abs(Math.round(fpm / 50) * 50)}`;
     e.vsi.dataset.s = fpm < -2200 ? 'bad' : fpm < -1700 ? 'warn' : 'neutral';

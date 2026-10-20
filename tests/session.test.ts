@@ -95,7 +95,7 @@ describe('full attempts', () => {
     const c = neutralControls(session.state.collective);
     let maxClimb = 0;
     for (let n = 0; n < 120 * 15 && session.phase === 'autorotation'; n++) {
-      if (session.state.agl < 5) c.collective = Math.min(1, c.collective + 1.5 / 120); // pull and hold full up
+      if (session.state.agl < 2) c.collective = Math.min(1, c.collective + 0.75 / 120); // hold W from ~6 ft
       session.step(c);
       maxClimb = Math.max(maxClimb, session.state.verticalSpeed);
     }

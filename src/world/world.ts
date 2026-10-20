@@ -116,7 +116,14 @@ function rectDistance(a: LandingArea, x: number, z: number): number {
 }
 
 export function createWorld(): World {
-  const areas: LandingArea[] = AREA_DEFS.map((d) => ({ ...d, elevation: baseHeight(d.cx, d.cz) }));
+  // Each field sits at the average height of the land around it, so it is flush with its
+  // surroundings rather than in a bowl or on a mound.
+  const surroundings = (cx: number, cz: number) => {
+    let sum = 0, count = 0;
+    for (let dz = -200; dz <= 200; dz += 50) for (let dx = -200; dx <= 200; dx += 50) (sum += baseHeight(cx + dx, cz + dz)), count++;
+    return sum / count;
+  };
+  const areas: LandingArea[] = AREA_DEFS.map((d) => ({ ...d, elevation: surroundings(d.cx, d.cz) }));
   const lakeElev = baseHeight(LAKE.x, LAKE.z);
   const waterLevel = lakeElev - 3;
 
@@ -130,7 +137,8 @@ export function createWorld(): World {
       let h = baseHeight(x, z);
       const lr = Math.hypot(x - LAKE.x, z - LAKE.z);
       h = lerp(h, lakeElev - 10, 1 - smoothstep(LAKE.r * 0.55, LAKE.r * 1.15, lr));
-      for (const a of areas) h = lerp(h, a.elevation, 1 - smoothstep(12, 70, rectDistance(a, x, z)));
+      // Blend the ground to each field's level over ~180 m so approaches are gentle slopes, not drop-offs.
+      for (const a of areas) h = lerp(h, a.elevation, 1 - smoothstep(12, 180, rectDistance(a, x, z)));
       heights[j * n + i] = h;
     }
   }

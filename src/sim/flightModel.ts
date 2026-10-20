@@ -51,9 +51,9 @@ export function rotorAero(
   const lambda = (inducedVel + vn) / tipSpeed;
   const alpha = theta - A.inflowGain * lambda;
 
-  // Blade stall above stallAlpha: lift falls off, drag rises sharply.
+  // Blade stall above stallAlpha: lift levels off and fades gently, drag rises sharply.
   const over = Math.max(0, alpha - A.stallAlpha);
-  const liftAlpha = alpha <= A.stallAlpha ? alpha : A.stallAlpha - 1.5 * over;
+  const liftAlpha = alpha <= A.stallAlpha ? alpha : A.stallAlpha - 0.4 * over;
 
   // Low rotor RPM: blades lose centrifugal stiffening and the retreating blade
   // stalls. Modeled as a thrust-efficiency loss plus extra drag below ~78 %.

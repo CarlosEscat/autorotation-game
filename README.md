@@ -57,7 +57,7 @@ Cyclic pitch is an *attitude command*: holding a key changes the pitch attitude,
 
 Coaching hints (on by default, toggle in the menu) suggest the next action in context. They never move the controls.
 
-**Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that.
+**Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that. In both modes, below about 80 ft a power-off helicopter can't climb back up: the flare brakes the speed and only lifts a few feet, and raising the collective cushions the touchdown (best at about 10–12 ft) instead of climbing.
 
 ## Training
 

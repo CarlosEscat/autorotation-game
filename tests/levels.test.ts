@@ -69,7 +69,7 @@ describe('training levels', () => {
   });
 
   it('flare and cushion: both together land softly, either one alone fails', () => {
-    /** Glide at 58 kt, flare at `flareFt`, level the skids, hold W while sinking below `cushionFt`. */
+    /** Glide at 58 kt, flare at `flareFt`, level the skids, hold W while sinking below `cushionFt` (earlier if sinking fast). */
     const pilot = (flareFt: number, cushionFt: number): Pilot => {
       let phase = 'glide';
       return (s, c) => {
@@ -83,17 +83,20 @@ describe('training levels', () => {
           pitchTo(s.verticalSpeed > 0 ? Math.min(s.pitchCmd, 0.17) : 0.31);
           if (ft < 25 || s.groundSpeed < 8) phase = 'level';
         } else pitchTo(0.05);
-        if (cushionFt && ft < cushionFt && s.verticalSpeed < -0.5) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
+        const cue = ft < cushionFt || (ft < 20 && cushionFt > 0 && cushionFt < 20 && s.verticalSpeed < -5.1);
+        if (cue && s.verticalSpeed < -0.5) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
       };
     };
     // The start is placed so flares from about 45 to 80 ft all end in the meadow.
     for (const flareFt of [50, 60, 75]) {
-      const { st, session } = runLevel('cushion', pilot(flareFt, 20));
+      const { st, session } = runLevel('cushion', pilot(flareFt, 12));
       expect(st.state).toBe('passed');
       expect(world.areaAt(session.state.pos.x, session.state.pos.z)?.id).toBe('meadow');
     }
     expect(runLevel('cushion', pilot(55, 0)).st.reason).toMatch(/collective/);
-    expect(runLevel('cushion', pilot(0, 20)).st.reason).toMatch(/flare/i);
+    expect(runLevel('cushion', pilot(0, 12)).st.reason).toMatch(/flare/i);
+    // Raising the collective far too early only holds you up until the rotor slows, then you drop.
+    expect(runLevel('cushion', pilot(55, 40)).st.state).toBe('failed');
   });
 
   it('checkride: a good flight from a reachable height passes', () => {
