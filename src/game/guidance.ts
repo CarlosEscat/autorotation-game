@@ -13,7 +13,9 @@ export interface Guidance {
 }
 
 const BEST_GLIDE_AIRSPEED = 28; // m/s (~55 kt)
-const BEST_GLIDE_DESCENT = 7.2; // m/s (~1400 fpm)
+const BEST_GLIDE_DESCENT = 6.7; // m/s (~1300 fpm), measured from the flight model at 55 kt
+/** You only need to reach the near part of a field, not its centre. */
+const FIELD_MARGIN = 60; // m
 
 /**
  * Advisory information only: where the selected area is and whether a straight
@@ -28,9 +30,9 @@ export function computeGuidance(s: HelicopterState, area: LandingArea, wind: Vec
   const tailwind = wind.x * ux + wind.z * uz;
   const ratio = Math.max(1, (BEST_GLIDE_AIRSPEED + tailwind) / BEST_GLIDE_DESCENT);
   const height = Math.max(s.agl, 1);
-  const needed = distance / height;
+  const needed = Math.max(0, distance - FIELD_MARGIN) / height;
   // Turning toward the target costs height; penalise large bearing errors a little.
   const turnPenalty = 1 + Math.abs(relBearing) / Math.PI * 0.35;
-  const reach: Reach = needed * turnPenalty < ratio * 0.8 ? 'ok' : needed * turnPenalty < ratio * 1.05 ? 'marginal' : 'short';
+  const reach: Reach = needed * turnPenalty <= ratio ? 'ok' : needed * turnPenalty <= ratio * 1.15 ? 'marginal' : 'short';
   return { distance, relBearing, reach, headwindOnApproach: -tailwind };
 }

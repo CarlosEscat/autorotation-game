@@ -199,32 +199,35 @@ export const LEVELS: LevelDef[] = [
     id: 'field',
     num: 4,
     title: 'Pick a field',
-    teaches: 'Choose a field you can reach and glide to it.',
-    // Facing south: the meadow is too far, one T press selects the Farm Strip, in reach ahead and to the right.
-    config: { ...BASE, altitudeFt: 1000, airspeedKt: 65, start: { x: 700, z: -100, yaw: Math.PI, autorotating: { sinkMs: 7, collective: 0.1 } } },
-    target: 'meadow',
+    teaches: 'Choose a field you can reach, glide to it and land.',
+    // Facing east: the preselected Rocky Clearing is too far; one T press selects Big Meadow, in reach just right of the nose.
+    config: { ...BASE, altitudeFt: 500, airspeedKt: 60, start: { x: -1000, z: 200, yaw: -Math.PI / 2, autorotating: { sinkMs: 7, collective: 0.1 } } },
+    target: 'clearing',
     gates: [],
     makeObjective(world) {
       return lesson(({ session, targetId, mode }) => {
         const s = session.state;
         const k = KEY_WORDS[mode];
         const area = world.areas.find((a) => a.id === targetId) ?? world.areas[0];
-        // Generous finish: anywhere within 80 m of the field counts as arriving.
-        const near = world.areaAt(s.pos.x, s.pos.z, 80)?.id === area.id;
-        if (near && s.agl > 30) {
-          const left = s.agl;
-          return pass(left > 90 ? 3 : left > 55 ? 2 : 1, `Made it to ${area.name} with ${ft(left)} ft to spare!`);
+        const r = session.result;
+        if (r) {
+          // Generous: stopping within 60 m of the field's edge counts as landing in it.
+          if (world.areaAt(s.pos.x, s.pos.z, 60)?.id !== area.id) return fail(`Landed outside ${area.name}. Pick a field that says IN REACH and fly straight to it.`);
+          return pass(r.outcome === 'excellent' ? 3 : r.outcome === 'safe' ? 2 : 1, `Landed in ${area.name}!`);
         }
-        if (s.agl <= 30) return fail(`Too low before reaching ${area.name}. Pick a field that says IN REACH.`);
+        if (session.phase === 'ground') return { text: 'Touchdown! Rolling to a stop…' };
+        if (s.agl < 45) {
+          return { text: s.agl > 18 ? `Almost there. Flare at about 50 ft: pull back (${k.aft}).` : `Level the skids (${k.fwd}). The assist cushions the landing.` };
+        }
         const g = computeGuidance(s, area, session.wind);
         const text =
           g.reach === 'short'
             ? `${area.name} is TOO FAR. Press ${k.target} to cycle fields until one says IN REACH.`
             : g.reach === 'marginal'
               ? `${area.name} is MARGINAL. You might make it, but a closer field (${k.target}) is safer.`
-              : Math.abs(g.relBearing) > 20 * DEG
+              : Math.abs(g.relBearing) > 15 * DEG
                 ? `${area.name} is in reach. Turn toward the beacon (${k.turn}) and hold 55–70 kt.`
-                : `Heading for ${area.name}. Keep 55–70 kt and arrive above 100 ft.`;
+                : `Heading for ${area.name}. Hold 55–70 kt and fly straight at the beacon.`;
         return { text };
       });
     },

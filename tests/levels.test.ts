@@ -85,25 +85,34 @@ describe('training levels', () => {
     expect(st.state).toBe('passed');
   });
 
-  it('field: gliding to an area in reach passes', () => {
+  it('field: picking the reachable field and gliding to it lands there', () => {
     const def = level('field');
     const session = new FlightSession(world, def.config);
     const objective = def.makeObjective(world);
     const c = neutralControls(session.state.collective);
-    const bot = makeBot({ flareHeight: 0 });
-    const strip = world.areas.find((a) => a.id === 'strip')!;
-    let st = objective.update({ session, targetId: 'meadow', mode: 'keyboard' }, 0);
+    const bot = makeBot();
+    const meadow = world.areas.find((a) => a.id === 'meadow')!;
+    let st = objective.update({ session, targetId: 'clearing', mode: 'keyboard' }, 0);
     expect(st.text).toMatch(/TOO FAR/);
-    // One T press selects the strip, which must already be in reach and ahead of the nose.
-    expect(objective.update({ session, targetId: 'strip', mode: 'keyboard' }, 0).text).toMatch(/in reach/);
-    for (let n = 0; n < 120 * 120 && st.state === 'running'; n++) {
+    // One T press selects the meadow, which must already be in reach.
+    expect(objective.update({ session, targetId: 'meadow', mode: 'keyboard' }, 0).text).toMatch(/in reach|Heading for/);
+    for (let n = 0; n < 120 * 200 && st.state === 'running'; n++) {
       bot(session.state, c);
-      c.cyclicRoll = steerTo(session.state, strip.cx, strip.cz);
+      c.cyclicRoll = session.state.agl > 20 ? steerTo(session.state, meadow.cx, meadow.cz) : 0;
       session.step(c);
-      st = objective.update({ session, targetId: 'strip', mode: 'keyboard' }, 1 / 120);
+      st = objective.update({ session, targetId: 'meadow', mode: 'keyboard' }, 1 / 120);
     }
     expect(st.state).toBe('passed');
-    expect(st.stars).toBe(3);
+    expect(st.stars).toBeGreaterThanOrEqual(2);
+  });
+
+  it('field: staying with the too-far field fails', () => {
+    const { st } = runLevel('field', (s, c, session) => {
+      c.collective = 0.1;
+      const t = session.world.areas.find((a) => a.id === 'clearing')!;
+      c.cyclicRoll = s.agl > 20 ? steerTo(s, t.cx, t.cz) : 0;
+    });
+    expect(st.state).toBe('failed');
   });
 
   it('failure: never lowering the collective fails', () => {
