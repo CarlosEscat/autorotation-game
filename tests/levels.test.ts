@@ -68,17 +68,29 @@ describe('training levels', () => {
     expect(st.stars).toBeGreaterThanOrEqual(1);
   });
 
-  it('cushion: raising the collective near the ground passes, never raising it fails', () => {
-    const cushionAt = (h: number): Pilot => (s, c) => {
-      c.cyclicPitch = clamp((0.035 - s.pitchCmd) * 6, -1, 1);
-      if (s.agl < h) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
+  it('flare and cushion: both together land softly, either one alone fails', () => {
+    /** Glide at 58 kt, flare at `flareFt`, level the skids, hold W while sinking below `cushionFt`. */
+    const pilot = (flareFt: number, cushionFt: number): Pilot => {
+      let phase = 'glide';
+      return (s, c) => {
+        const ft = s.agl * 3.28;
+        const pitchTo = (t: number) => (c.cyclicPitch = clamp((t - s.pitchCmd) * 6, -1, 1));
+        if (phase === 'glide') {
+          pitchTo(clamp(-0.02 * (30 - s.airspeed) - 0.05, -0.25, 0.15));
+          c.collective = clamp(0.1 + (s.rpmPct - 100) * 0.015, 0, 1);
+          if (flareFt && ft < flareFt) phase = 'flare';
+        } else if (phase === 'flare') {
+          pitchTo(s.verticalSpeed > 0 ? Math.min(s.pitchCmd, 0.17) : 0.31);
+          if (ft < 25 || s.groundSpeed < 8) phase = 'level';
+        } else pitchTo(0.05);
+        if (cushionFt && ft < cushionFt && s.verticalSpeed < -0.5) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
+      };
     };
-    const good = runLevel('cushion', cushionAt(3.6)).st;
+    const good = runLevel('cushion', pilot(55, 20)).st;
     expect(good.state).toBe('passed');
     expect(good.stars).toBe(3);
-    // A pull from higher up only slows the descent (it can't balloon), so it still lands softly.
-    expect(runLevel('cushion', cushionAt(6)).st.state).toBe('passed');
-    expect(runLevel('cushion', () => {}).st.state).toBe('failed');
+    expect(runLevel('cushion', pilot(55, 0)).st.reason).toMatch(/collective/);
+    expect(runLevel('cushion', pilot(0, 20)).st.reason).toMatch(/flare/i);
   });
 
   it('checkride: a good flight from a reachable height passes', () => {

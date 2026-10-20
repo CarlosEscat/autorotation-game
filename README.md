@@ -61,7 +61,7 @@ Coaching hints (on by default, toggle in the menu) suggest the next action in co
 
 ## Training
 
-**Training** in the menu has 8 short levels, each teaching one skill: basic flying (fly through gates), the engine failure, glide speed, picking a field, the flare, level and cushion, landing into the wind, and a final checkride on Realistic. Each level shows step-by-step instructions, ends as soon as its goal is met or failed, and awards 1–3 stars. Passing a level unlocks the next; stars are saved in the browser.
+**Training** in the menu has 8 short levels, each teaching one skill: basic flying (fly through gates), the engine failure, glide speed, picking a field, the flare, flare and cushion together, landing into the wind, and a final checkride on Realistic. Each level shows step-by-step instructions, ends as soon as its goal is met or failed, and awards 1–3 stars. Passing a level unlocks the next; stars are saved in the browser.
 
 ## Architecture
 

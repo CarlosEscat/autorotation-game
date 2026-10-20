@@ -31,13 +31,15 @@ export interface FlightConfig {
   start?: StartOverride;
   /** Set false to turn off easy mode's auto-cushion (the slower NR decay stays). */
   cushion?: boolean;
+  /** Multiplier on touchdown limits; defaults to 2.5 in easy mode, 1 otherwise. */
+  leniency?: number;
 }
 
 export interface StartOverride {
   x: number;
   z: number;
   yaw: number;
-  autorotating?: { sinkMs: number; collective: number; pitchDeg?: number; rpmPct?: number };
+  autorotating?: { sinkMs: number; collective: number };
 }
 
 export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 8, windFromDeg: 0, failureDelay: 4 };
@@ -118,8 +120,6 @@ export class FlightSession {
     s.yawKick = 0;
     s.collective = e.collective;
     s.vel.y = -e.sinkMs;
-    if (e.pitchDeg !== undefined) s.pitch = s.pitchCmd = e.pitchDeg * DEG;
-    if (e.rpmPct !== undefined) s.omega = (A.rotorOmega0 * e.rpmPct) / 100;
     updateDerived(s, this.env);
     this.rec.onFailure(s);
     this.rec.reactionTime = 0;
@@ -131,7 +131,7 @@ export class FlightSession {
   }
 
   private get leniency(): number {
-    return this.easy ? EASY_LENIENCY : 1;
+    return this.config.leniency ?? (this.easy ? EASY_LENIENCY : 1);
   }
 
   get timeSinceFailure(): number {
