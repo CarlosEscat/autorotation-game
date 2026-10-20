@@ -277,7 +277,8 @@ export const LEVELS: LevelDef[] = [
       leniency: 2,
       altitudeFt: 200,
       airspeedKt: 60,
-      start: { x: -380, z: 750, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } },
+      // Placed so flares between about 45 and 80 ft, at any sensible glide speed, end in the meadow.
+      start: { x: -380, z: 700, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } },
     },
     target: 'meadow',
     gates: [],
@@ -291,6 +292,7 @@ export const LEVELS: LevelDef[] = [
           const td = r.touchdown!;
           const vs = td.verticalSpeed;
           if (td.pitch / DEG > 10) return fail(`Touched down ${Math.round(td.pitch / DEG)}° nose up. Level the skids (${k.fwd}) after the flare.`);
+          if (vs > 2.54 && flareAt !== null && flareAt > 24) return fail(`Flared too high (${ft(flareAt)} ft): you stopped up there and dropped. Flare at about 50–60 ft.`);
           if (vs > 2.54) return fail(`Touched down at ${fpm(vs)} fpm. Raise the collective (${k.up}) in the last few feet to cushion.`);
           const soft = vs < 1.27 && td.groundSpeed < 4.1;
           return pass(soft ? 3 : vs < 1.8 ? 2 : 1, `Touched down at ${Math.max(0, fpm(vs))} fpm, ${Math.round(td.groundSpeed * MS_TO_KT)} kt.`);

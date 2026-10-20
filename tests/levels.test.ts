@@ -86,9 +86,12 @@ describe('training levels', () => {
         if (cushionFt && ft < cushionFt && s.verticalSpeed < -0.5) c.collective = clamp(c.collective + 0.75 / 120, 0, 1);
       };
     };
-    const good = runLevel('cushion', pilot(55, 20)).st;
-    expect(good.state).toBe('passed');
-    expect(good.stars).toBe(3);
+    // The start is placed so flares from about 45 to 80 ft all end in the meadow.
+    for (const flareFt of [50, 60, 75]) {
+      const { st, session } = runLevel('cushion', pilot(flareFt, 20));
+      expect(st.state).toBe('passed');
+      expect(world.areaAt(session.state.pos.x, session.state.pos.z)?.id).toBe('meadow');
+    }
     expect(runLevel('cushion', pilot(55, 0)).st.reason).toMatch(/collective/);
     expect(runLevel('cushion', pilot(0, 20)).st.reason).toMatch(/flare/i);
   });
