@@ -84,6 +84,14 @@ html, body {
 .banner.danger { color: var(--red); }
 .banner.info { color: var(--green); }
 
+/* Desktop: instruments along the bottom (over the cockpit panel), hints and lessons at the top centre. */
+@media (pointer: fine) and (min-width: 900px) and (min-height: 500px) {
+  body:not(.touch) .hud-left { top: auto; bottom: calc(14px + var(--safe-b)); }
+  body:not(.touch) .hud-right { top: auto; bottom: calc(14px + var(--safe-b)); flex-direction: row; align-items: flex-end; }
+  body:not(.touch) .warnings { top: auto; bottom: calc(150px + var(--safe-b)); }
+  body:not(.touch) .hint { bottom: auto; top: calc(72px + var(--safe-t)); }
+}
+
 /* ---------- Touch controls ---------- */
 .touch-controls { position: absolute; inset: 0; pointer-events: none; display: none; }
 .touch-controls.visible { display: block; }
