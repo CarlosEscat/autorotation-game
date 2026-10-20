@@ -75,6 +75,8 @@ export interface TouchdownReport {
   headwind: number; // m/s component of wind on the nose at touchdown
   tailFirst: boolean;
   rocksUnderfoot: boolean;
+  /** Multiplier on every touchdown limit (1 = realistic, larger = more forgiving). */
+  leniency: number;
   rollover: boolean;
   damage: number;
   /** Ranked list of what caused damage. */
@@ -90,7 +92,8 @@ export const RUN_ON_TOLERANCE: Record<Surface, number> = {
   water: 0,
 };
 
-export function evaluateTouchdown(s: HelicopterState, world: World, contact: GroundContact, wind: Vec3): TouchdownReport {
+export function evaluateTouchdown(s: HelicopterState, world: World, contact: GroundContact, wind: Vec3, leniency = 1): TouchdownReport {
+  const L = leniency;
   const axes = bodyAxes(s.yaw, 0, 0);
   const vs = -s.vel.y;
   const fwd = dot(s.vel, axes.forward);
@@ -112,33 +115,34 @@ export function evaluateTouchdown(s: HelicopterState, world: World, contact: Gro
 
   // Vertical impact: skids absorb up to ~1 m/s (200 fpm) without damage.
   const fpm = Math.round(vs * 196.85);
-  if (vs > 7) hit(100, `Vertical impact of ${fpm} fpm destroyed the airframe`);
-  else if (vs > 4.5) hit(42 + (vs - 4.5) * 16, `Very hard vertical impact (${fpm} fpm)`);
-  else if (vs > 2.5) hit(12 + (vs - 2.5) * 15, `Hard touchdown (${fpm} fpm) spread the skids`);
-  else if (vs > 1) hit((vs - 1) * 8, `Firm touchdown (${fpm} fpm)`);
+  const v = vs / L;
+  if (v > 7) hit(100, `Vertical impact of ${fpm} fpm destroyed the airframe`);
+  else if (v > 4.5) hit(42 + (v - 4.5) * 16, `Very hard vertical impact (${fpm} fpm)`);
+  else if (v > 2.5) hit(12 + (v - 2.5) * 15, `Hard touchdown (${fpm} fpm) spread the skids`);
+  else if (v > 1) hit((v - 1) * 8, `Firm touchdown (${fpm} fpm)`);
 
-  const tol = RUN_ON_TOLERANCE[surface];
+  const tol = RUN_ON_TOLERANCE[surface] * L;
   const kt = (m: number) => Math.round(m * 1.944);
   if (surface === 'water') hit(100, 'Ditched in the lake');
   else if (gs > tol) hit((gs - tol) * 6, `Touched down at ${kt(gs)} kt ground speed on ${surface === 'grass' ? 'unprepared ground' : surface + ' surface'}`);
-  if (gs > tol + 10) rollover = true;
+  if (gs > tol + 10 * L) rollover = true;
 
-  if (Math.abs(lat) > 1.5) hit((Math.abs(lat) - 1.5) * 15, `Skidding sideways at ${kt(Math.abs(lat))} kt`);
-  if (Math.abs(lat) > 4) rollover = true;
-  if (fwd < -1) hit(25, 'Moving backwards at touchdown: tail rotor struck the ground');
+  if (Math.abs(lat) > 1.5 * L) hit((Math.abs(lat) - 1.5 * L) * 15, `Skidding sideways at ${kt(Math.abs(lat))} kt`);
+  if (Math.abs(lat) > 4 * L) rollover = true;
+  if (fwd < -1 * L) hit(25, 'Moving backwards at touchdown: tail rotor struck the ground');
 
-  if (contact.tailFirst || pitchDeg > 12) hit(15 + Math.max(0, pitchDeg - 12) * 3, `Tail struck the ground (${pitchDeg.toFixed(0)}° nose up)`);
-  if (pitchDeg < -4 && gs > 3) hit((-pitchDeg - 4) * 3 + 5, `Nose-low touchdown (${(-pitchDeg).toFixed(0)}° down) dug in the skid toes`);
-  if (pitchDeg < -8 && gs > 8) rollover = true;
+  if ((contact.tailFirst && L === 1) || pitchDeg > 12 * L) hit(15 + Math.max(0, pitchDeg - 12 * L) * 3, `Tail struck the ground (${pitchDeg.toFixed(0)}° nose up)`);
+  if (pitchDeg < -4 * L && gs > 3 * L) hit((-pitchDeg - 4 * L) * 3 + 5, `Nose-low touchdown (${(-pitchDeg).toFixed(0)}° down) dug in the skid toes`);
+  if (pitchDeg < -8 * L && gs > 8 * L) rollover = true;
 
-  if (rollDeg > 6) hit((rollDeg - 6) * 4, `Landed with ${rollDeg.toFixed(0)}° of bank`);
-  if (rollDeg > 15) rollover = true;
+  if (rollDeg > 6 * L) hit((rollDeg - 6 * L) * 4, `Landed with ${rollDeg.toFixed(0)}° of bank`);
+  if (rollDeg > 15 * L) rollover = true;
 
   const slopeDeg = Math.atan(slope) / DEG;
-  if (slopeDeg > 12) rollover = true;
-  else if (slopeDeg > 6) hit((slopeDeg - 6) * 4, `Sloping ground (${slopeDeg.toFixed(0)}°)`);
+  if (slopeDeg > 12 * L) rollover = true;
+  else if (slopeDeg > 6 * L) hit((slopeDeg - 6 * L) * 4, `Sloping ground (${slopeDeg.toFixed(0)}°)`);
 
-  if (s.rpmPct < 60) hit(15, `Rotor RPM only ${s.rpmPct.toFixed(0)}% at touchdown: drooping blades hit the tail boom`);
+  if (s.rpmPct < 60 / L) hit(15, `Rotor RPM only ${s.rpmPct.toFixed(0)}% at touchdown: drooping blades hit the tail boom`);
   if (surface === 'rough') hit(8, 'Rough ground damaged the skids');
   if (rocks) hit(25, 'A skid landed on a boulder');
 
@@ -160,6 +164,7 @@ export function evaluateTouchdown(s: HelicopterState, world: World, contact: Gro
     headwind,
     tailFirst: contact.tailFirst,
     rocksUnderfoot: rocks,
+    leniency: L,
     rollover,
     damage,
     damageReasons: reasons,
@@ -169,6 +174,6 @@ export function evaluateTouchdown(s: HelicopterState, world: World, contact: Gro
 export function classify(damage: number, crashed: boolean, td: TouchdownReport | null): Outcome {
   if (crashed || !td || damage >= 60) return 'crash';
   if (damage >= 20) return 'damaged';
-  if (damage < 5 && td.area && td.verticalSpeed < 1.5 && td.groundSpeed <= RUN_ON_TOLERANCE[td.surface] * 0.8) return 'excellent';
+  if (damage < 5 && td.area && td.verticalSpeed < 1.5 * td.leniency && td.groundSpeed <= RUN_ON_TOLERANCE[td.surface] * td.leniency * 0.8) return 'excellent';
   return 'safe';
 }

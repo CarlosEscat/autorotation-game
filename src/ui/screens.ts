@@ -1,8 +1,9 @@
 import { KEY_BINDINGS } from '../input/keyboard';
-import { FlightConfig, FlightResult } from '../game/session';
+import { Difficulty, FlightConfig, FlightResult } from '../game/session';
 import { Outcome } from '../game/landing';
 
 export interface Settings {
+  difficulty: Difficulty;
   altitudeFt: number;
   airspeedKt: number;
   wind: 'calm' | 'light' | 'strong';
@@ -17,7 +18,7 @@ export const WIND_PRESETS: Record<Settings['wind'], { kt: number; from: number; 
 
 export function configFromSettings(s: Settings): FlightConfig {
   const w = WIND_PRESETS[s.wind];
-  return { altitudeFt: s.altitudeFt, airspeedKt: s.airspeedKt, windKt: w.kt, windFromDeg: w.from, failureDelay: 4 };
+  return { altitudeFt: s.altitudeFt, airspeedKt: s.airspeedKt, windKt: w.kt, windFromDeg: w.from, failureDelay: 4, difficulty: s.difficulty };
 }
 
 const OUTCOME_TEXT: Record<Outcome, string> = {
@@ -92,6 +93,7 @@ export class Screens {
       <div class="logo">AUTO<span>ROTATION</span></div>
       <p class="tagline">Your engine is about to quit. Get it down in one piece.</p>
       <div class="settings">
+        <label>Difficulty<select name="diff">${opt('easy', 'Easy (arcade)', s.difficulty)}${opt('normal', 'Realistic', s.difficulty)}</select></label>
         <label>Start altitude<select name="alt">${[700, 1000, 1500].map((v) => opt(v, `${v} ft`, s.altitudeFt)).join('')}</select></label>
         <label>Airspeed<select name="ias">${[60, 70, 90].map((v) => opt(v, `${v} kt`, s.airspeedKt)).join('')}</select></label>
         <label>Wind<select name="wind">${Object.entries(WIND_PRESETS).map(([k, w]) => opt(k, w.label, s.wind)).join('')}</select></label>
@@ -131,6 +133,7 @@ export class Screens {
   readSettings(): Settings {
     const q = <T extends HTMLElement>(n: string) => this.menu.querySelector<T>(`[name="${n}"]`)!;
     this.settings = {
+      difficulty: q<HTMLSelectElement>('diff').value as Difficulty,
       altitudeFt: Number(q<HTMLSelectElement>('alt').value),
       airspeedKt: Number(q<HTMLSelectElement>('ias').value),
       wind: q<HTMLSelectElement>('wind').value as Settings['wind'],

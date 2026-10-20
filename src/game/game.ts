@@ -22,10 +22,13 @@ interface Saved {
 }
 
 function load(): Saved {
-  const fallback: Saved = { settings: { altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0 };
+  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0 };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...fallback, ...JSON.parse(raw) } : fallback;
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<Saved>;
+    // Older saves predate newer settings (e.g. difficulty): fill them from the defaults.
+    return { ...fallback, ...parsed, settings: { ...fallback.settings, ...parsed.settings } };
   } catch {
     return fallback;
   }
@@ -205,6 +208,9 @@ export class Game {
         case 'failure':
           this.hud.flash('ENGINE FAILURE', 'danger', 2.5);
           this.audio.failureChime();
+          break;
+        case 'assist':
+          this.hud.flash('LANDING ASSIST', 'info', 1.6);
           break;
         case 'lowG':
           this.lowGTimer = 1.5;

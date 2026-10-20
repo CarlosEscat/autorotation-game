@@ -75,4 +75,17 @@ describe('full attempts', () => {
     expect(r.touchdown!.verticalSpeed).toBeGreaterThan(good.touchdown!.verticalSpeed);
   });
 
+  it('easy mode forgives a sloppy approach that crashes in realistic mode', () => {
+    const sloppy: BotOptions = { flareHeight: 0, cushion: false, reactionDelay: 2 };
+    const normal = fly(sloppy).result!;
+    const easy = fly(sloppy, { difficulty: 'easy' }).result!;
+    console.log('sloppy', normal.outcome, normal.damage, '| easy', easy.outcome, easy.damage, easy.touchdown?.verticalSpeed, easy.touchdown?.groundSpeed);
+    expect(normal.outcome).toBe('crash');
+    expect(['excellent', 'safe']).toContain(easy.outcome);
+  });
+
+  it('easy mode still crashes if the collective is never lowered', () => {
+    expect(fly({ lowerCollective: false }, { difficulty: 'easy' }).result!.outcome).toBe('crash');
+  });
+
 });

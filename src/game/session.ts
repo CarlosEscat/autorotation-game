@@ -16,6 +16,8 @@ import {
 } from './landing';
 import { FlightRecorder, ScoreResult, computeScore } from './scoring';
 
+export type Difficulty = 'easy' | 'normal';
+
 export interface FlightConfig {
   altitudeFt: number;
   airspeedKt: number;
@@ -23,15 +25,20 @@ export interface FlightConfig {
   /** Direction the wind blows FROM, degrees (0 = north). */
   windFromDeg: number;
   failureDelay: number; // s of normal flight before the failure
+  /** 'easy' adds arcade assists: slower NR decay, auto-cushion near the ground, wider touchdown limits. */
+  difficulty?: Difficulty;
 }
 
 export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 8, windFromDeg: 0, failureDelay: 4 };
+/** Touchdown limits are multiplied by this in easy mode. */
+const EASY_LENIENCY = 2.5;
+
 export const START = { x: 0, z: 1100, yaw: 0 };
 
 export type Phase = 'cruise' | 'autorotation' | 'ground' | 'done';
 
 export interface FlightEvent {
-  type: 'failure' | 'touchdown' | 'strike' | 'crash' | 'stopped' | 'lowG';
+  type: 'failure' | 'touchdown' | 'strike' | 'crash' | 'stopped' | 'lowG' | 'assist';
   text: string;
 }
 
@@ -67,6 +74,7 @@ export class FlightSession {
   /** Visual-only: roll angle of a helicopter that tipped over. */
   tipOver = 0;
   private groundTime = 0;
+  private assistAnnounced = false;
 
   constructor(
     readonly world: World,
@@ -89,6 +97,14 @@ export class FlightSession {
     this.rec.start(this.state);
   }
 
+  get easy(): boolean {
+    return this.config.difficulty === 'easy';
+  }
+
+  private get leniency(): number {
+    return this.easy ? EASY_LENIENCY : 1;
+  }
+
   get timeSinceFailure(): number {
     return this.rec.failureTime < 0 ? -1 : this.state.time - this.rec.failureTime;
   }
@@ -105,7 +121,9 @@ export class FlightSession {
       this.events.push({ type: 'failure', text: 'ENGINE FAILURE' });
     }
 
+    const omegaBefore = s.omega;
     stepFlight(s, c, this.env, dt);
+    if (this.easy) this.applyAssists(omegaBefore, dt);
     this.rec.record(s, dt);
 
     // In-flight structural limits.
@@ -115,7 +133,7 @@ export class FlightSession {
       this.flightDamage += 6 * dt;
       if (this.lowGRun > 0.3 && this.lowGRun - dt <= 0.3) this.events.push({ type: 'lowG', text: 'LOW-G! Ease the cyclic back' });
     } else if (s.loadFactor > 0.35) this.lowGRun = 0;
-    if (this.lowGRun > 1.6) return this.crash('Mast bumping after a sustained low-G push-over: the rotor separated');
+    if (this.lowGRun > 1.6 && !this.easy) return this.crash('Mast bumping after a sustained low-G push-over: the rotor separated');
     if (s.rpmPct < 40) return this.crash(`Rotor RPM decayed to ${s.rpmPct.toFixed(0)}%: the blades stalled`);
 
     const strike = checkObstacleStrike(s, this.world);
@@ -123,6 +141,36 @@ export class FlightSession {
 
     const contact = checkGroundContact(s, this.world);
     if (contact) this.onTouchdown(contact);
+  }
+
+  /**
+   * Easy-mode arcade help layered on top of the physics: the rotor loses RPM
+   * more slowly, and close to the ground an auto-cushion limits the sink rate,
+   * bleeds off ground speed and levels the skids.
+   */
+  private applyAssists(omegaBefore: number, dt: number) {
+    const s = this.state;
+    if (s.omega < omegaBefore) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
+    if (this.phase !== 'autorotation') return;
+
+    const agl = s.agl;
+    if (agl > 20) return;
+    if (!this.assistAnnounced) {
+      this.assistAnnounced = true;
+      this.events.push({ type: 'assist', text: 'LANDING ASSIST' });
+    }
+    const t = 1 - agl / 20; // 0 at 20 m, 1 at the ground
+    const maxSink = 1 + agl * 0.35;
+    if (-s.vel.y > maxSink) s.vel.y += (-maxSink - s.vel.y) * Math.min(1, dt * 4);
+    const brake = Math.exp(-dt * 0.9 * t);
+    s.vel.x = this.wind.x + (s.vel.x - this.wind.x) * brake;
+    s.vel.z = this.wind.z + (s.vel.z - this.wind.z) * brake;
+    if (agl < 6) {
+      const level = Math.min(1, dt * 3 * (1 - agl / 6));
+      s.pitchCmd += (clamp(s.pitchCmd, -3 * DEG, 6 * DEG) - s.pitchCmd) * level;
+      s.pitch += (clamp(s.pitch, -3 * DEG, 6 * DEG) - s.pitch) * level;
+      s.roll -= s.roll * level;
+    }
   }
 
   private onStrike(strike: StrikeResult) {
@@ -138,14 +186,14 @@ export class FlightSession {
     if (!this.touchdown) {
       // Still record what the helicopter looked like at impact for the debrief.
       const contact = { tailFirst: false };
-      this.touchdown = evaluateTouchdown(this.state, this.world, contact, this.wind);
+      this.touchdown = evaluateTouchdown(this.state, this.world, contact, this.wind, this.leniency);
     }
     this.toGround();
   }
 
   private onTouchdown(contact: GroundContact) {
     this.rec.onTouchdown(this.state);
-    this.touchdown = evaluateTouchdown(this.state, this.world, contact, this.wind);
+    this.touchdown = evaluateTouchdown(this.state, this.world, contact, this.wind, this.leniency);
     if (this.touchdown.rollover || this.touchdown.surface === 'water' || this.touchdown.damage + this.flightDamage >= 60) {
       this.crashed = true;
       this.crashReason = this.touchdown.damageReasons[0]?.text ?? 'Impact';
