@@ -200,7 +200,8 @@ export const LEVELS: LevelDef[] = [
     num: 4,
     title: 'Pick a field',
     teaches: 'Choose a field you can reach and glide to it.',
-    config: { ...BASE, altitudeFt: 700, start: { x: 0, z: 1100, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } } },
+    // Facing south: the meadow is too far, one T press selects the Farm Strip, in reach ahead and to the right.
+    config: { ...BASE, altitudeFt: 1000, airspeedKt: 65, start: { x: 700, z: -100, yaw: Math.PI, autorotating: { sinkMs: 7, collective: 0.1 } } },
     target: 'meadow',
     gates: [],
     makeObjective(world) {
@@ -208,12 +209,13 @@ export const LEVELS: LevelDef[] = [
         const s = session.state;
         const k = KEY_WORDS[mode];
         const area = world.areas.find((a) => a.id === targetId) ?? world.areas[0];
-        const over = world.areaAt(s.pos.x, s.pos.z);
-        if (over && over.id === area.id && s.agl > 46) {
+        // Generous finish: anywhere within 80 m of the field counts as arriving.
+        const near = world.areaAt(s.pos.x, s.pos.z, 80)?.id === area.id;
+        if (near && s.agl > 30) {
           const left = s.agl;
-          return pass(left > 120 ? 3 : left > 80 ? 2 : 1, `Made it to ${area.name} with ${ft(left)} ft to spare!`);
+          return pass(left > 90 ? 3 : left > 55 ? 2 : 1, `Made it to ${area.name} with ${ft(left)} ft to spare!`);
         }
-        if (s.agl <= 46) return fail(`Too low before reaching ${area.name}. Pick a field that says IN REACH.`);
+        if (s.agl <= 30) return fail(`Too low before reaching ${area.name}. Pick a field that says IN REACH.`);
         const g = computeGuidance(s, area, session.wind);
         const text =
           g.reach === 'short'
@@ -222,7 +224,7 @@ export const LEVELS: LevelDef[] = [
               ? `${area.name} is MARGINAL. You might make it, but a closer field (${k.target}) is safer.`
               : Math.abs(g.relBearing) > 20 * DEG
                 ? `${area.name} is in reach. Turn toward the beacon (${k.turn}) and hold 55–70 kt.`
-                : `Heading for ${area.name}. Keep 55–70 kt and arrive above 150 ft.`;
+                : `Heading for ${area.name}. Keep 55–70 kt and arrive above 100 ft.`;
         return { text };
       });
     },

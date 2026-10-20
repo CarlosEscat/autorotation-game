@@ -91,16 +91,19 @@ describe('training levels', () => {
     const objective = def.makeObjective(world);
     const c = neutralControls(session.state.collective);
     const bot = makeBot({ flareHeight: 0 });
-    const clearing = world.areas.find((a) => a.id === 'clearing')!;
+    const strip = world.areas.find((a) => a.id === 'strip')!;
     let st = objective.update({ session, targetId: 'meadow', mode: 'keyboard' }, 0);
-    expect(st.text).toMatch(/TOO FAR|MARGINAL/);
+    expect(st.text).toMatch(/TOO FAR/);
+    // One T press selects the strip, which must already be in reach and ahead of the nose.
+    expect(objective.update({ session, targetId: 'strip', mode: 'keyboard' }, 0).text).toMatch(/in reach/);
     for (let n = 0; n < 120 * 120 && st.state === 'running'; n++) {
       bot(session.state, c);
-      c.cyclicRoll = steerTo(session.state, clearing.cx, clearing.cz);
+      c.cyclicRoll = steerTo(session.state, strip.cx, strip.cz);
       session.step(c);
-      st = objective.update({ session, targetId: 'clearing', mode: 'keyboard' }, 1 / 120);
+      st = objective.update({ session, targetId: 'strip', mode: 'keyboard' }, 1 / 120);
     }
     expect(st.state).toBe('passed');
+    expect(st.stars).toBe(3);
   });
 
   it('failure: never lowering the collective fails', () => {
