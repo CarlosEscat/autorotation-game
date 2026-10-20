@@ -290,11 +290,9 @@ export const LEVELS: LevelDef[] = [
         }
         if (session.phase === 'ground') return { text: 'Touchdown! Rolling to a stop…' };
         const text =
-          s.agl > 4
-            ? `No auto-cushion now. Keep the skids level and wait: don't raise the collective yet.`
-            : s.verticalSpeed < -0.3
-              ? `NOW: raise the collective (${k.up}) to cushion. The rotor's stored energy only lasts a moment.`
-              : `Ease off (${k.down}) so you don't climb back up.`;
+          s.agl > 4.5
+            ? `No auto-cushion now. Keep the skids level; below about 15 ft, raise the collective (${k.up}).`
+            : `NOW: raise the collective (${k.up}) and hold it to cushion the touchdown.`;
         return { text };
       });
     },

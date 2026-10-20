@@ -84,6 +84,25 @@ describe('full attempts', () => {
     expect(['excellent', 'safe']).toContain(easy.outcome);
   });
 
+  it('easy mode: a late collective pull cushions instead of climbing', () => {
+    const session = new FlightSession(world, {
+      ...DEFAULT_CONFIG,
+      difficulty: 'easy',
+      altitudeFt: 40,
+      airspeedKt: 10,
+      start: { x: -380, z: 400, yaw: 0, autorotating: { sinkMs: 4, collective: 0.15 } },
+    });
+    const c = neutralControls(session.state.collective);
+    let maxClimb = 0;
+    for (let n = 0; n < 120 * 15 && session.phase === 'autorotation'; n++) {
+      if (session.state.agl < 5) c.collective = Math.min(1, c.collective + 1.5 / 120); // pull and hold full up
+      session.step(c);
+      maxClimb = Math.max(maxClimb, session.state.verticalSpeed);
+    }
+    expect(maxClimb).toBeLessThanOrEqual(0);
+    expect(session.touchdown!.verticalSpeed).toBeLessThan(1); // under ~200 fpm
+  });
+
   it('easy mode still crashes if the collective is never lowered', () => {
     expect(fly({ lowerCollective: false }, { difficulty: 'easy' }).result!.outcome).toBe('crash');
   });

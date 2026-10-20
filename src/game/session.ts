@@ -174,15 +174,30 @@ export class FlightSession {
 
   /**
    * Easy-mode arcade help layered on top of the physics: the rotor loses RPM
-   * more slowly, and close to the ground an auto-cushion limits the sink rate,
-   * bleeds off ground speed and levels the skids.
+   * more slowly while descending, a late collective pull near the ground
+   * cushions instead of climbing, and (unless `cushion` is off) an auto-cushion
+   * limits the sink rate, bleeds off ground speed and levels the skids.
    */
   private applyAssists(omegaBefore: number, dt: number) {
     const s = this.state;
-    if (s.omega < omegaBefore) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
-    if (this.phase !== 'autorotation' || this.config.cushion === false) return;
+    // Climbing spends rotor energy at the real rate, so a balloon dies out quickly. Near the
+    // ground the climb cap below already prevents ballooning, so the cushion keeps the slow rate.
+    if (s.omega < omegaBefore && (s.vel.y < 0 || s.agl < 12)) s.omega = omegaBefore + (s.omega - omegaBefore) * 0.35;
+    if (this.phase !== 'autorotation') return;
 
     const agl = s.agl;
+    if (agl < 12) {
+      // Cushion: near the ground collective can slow the descent but never reverse it.
+      // The slowest allowed sink shrinks with height, ending in a gentle settle (~60 fpm).
+      const minSink = 0.3 + 0.6 * agl;
+      if (s.vel.y > -minSink) {
+        s.vel.y = -minSink;
+        // The lift that would have climbed is not spent, so the rotor keeps its energy for the touchdown.
+        s.omega = omegaBefore + (s.omega - omegaBefore) * 0.3;
+      }
+    }
+    if (this.config.cushion === false) return;
+
     if (agl > 20) return;
     if (!this.assistAnnounced) {
       this.assistAnnounced = true;
