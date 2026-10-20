@@ -36,3 +36,21 @@ export function computeGuidance(s: HelicopterState, area: LandingArea, wind: Vec
   const reach: Reach = needed * turnPenalty <= ratio ? 'ok' : needed * turnPenalty <= ratio * 1.15 ? 'marginal' : 'short';
   return { distance, relBearing, reach, headwindOnApproach: -tailwind };
 }
+
+/** Fields further than this from the nose are behind the pilot and can't be selected. */
+export const SELECT_MAX_ANGLE = (75 * Math.PI) / 180;
+
+/**
+ * Next landing area the pilot can see (within SELECT_MAX_ANGLE of the nose),
+ * cycling in list order after `current`. Returns null when no other field is ahead.
+ */
+export function nextTargetAhead(s: HelicopterState, areas: LandingArea[], current: number | null): number | null {
+  for (let step = 1; step <= areas.length; step++) {
+    const i = ((current ?? -1) + step) % areas.length;
+    if (i === current) continue;
+    const a = areas[i];
+    const rel = -wrapAngle(Math.atan2(-(a.cx - s.pos.x), -(a.cz - s.pos.z)) - s.yaw);
+    if (Math.abs(rel) <= SELECT_MAX_ANGLE) return i;
+  }
+  return null;
+}

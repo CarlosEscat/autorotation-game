@@ -8,7 +8,7 @@ import { RPM } from '../sim/aircraft';
 import { Screens, Settings, configFromSettings } from '../ui/screens';
 import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
-import { computeGuidance } from './guidance';
+import { computeGuidance, nextTargetAhead } from './guidance';
 import { contextualHint } from './hints';
 import { LEVELS, LevelDef, Objective, ObjectiveStatus } from './levels';
 import { FlightConfig, FlightSession } from './session';
@@ -123,8 +123,10 @@ export class Game {
     const i = this.input;
     i.on('cycleTarget', () => {
       if (this.state !== 'flying') return;
-      this.targetIndex = ((this.targetIndex ?? -1) + 1) % this.world.areas.length;
-      this.renderer.setTarget(this.world.areas[this.targetIndex]);
+      const next = nextTargetAhead(this.session!.state, this.world.areas, this.targetIndex);
+      if (next === null) return this.hud.flash('NO OTHER FIELD AHEAD', 'info', 1.2);
+      this.targetIndex = next;
+      this.renderer.setTarget(this.world.areas[next]);
     });
     i.on('camera', () => {
       if (this.state === 'flying' || this.state === 'results') this.renderer.setMode(this.renderer.mode === 'cockpit' ? 'chase' : 'cockpit');

@@ -6,7 +6,7 @@ export const KEY_BINDINGS: { keys: string; action: string }[] = [
   { keys: '↑ / ↓', action: 'Cyclic forward (nose down) / aft (nose up)' },
   { keys: '← / →', action: 'Cyclic left / right (bank)' },
   { keys: 'A / D', action: 'Pedals (yaw), optional' },
-  { keys: 'T', action: 'Select next landing area' },
+  { keys: 'T', action: 'Select next landing area ahead' },
   { keys: 'C', action: 'Cockpit / chase camera' },
   { keys: 'Mouse drag', action: 'Look around' },
   { keys: 'P / Esc', action: 'Pause' },

@@ -35,7 +35,7 @@ Build and serve the app over HTTPS (or `localhost`). Supported browsers then off
 | **↑ / ↓** (or I / K) | Cyclic forward (nose down) / aft (nose up) |
 | **← / →** (or J / L) | Cyclic left / right (bank) |
 | **A / D** | Pedals (optional, the tail fin weathervanes the nose at speed) |
-| **T** | Cycle the selected landing area |
+| **T** | Cycle the selected landing area (only fields ahead, within 75° of the nose) |
 | **C** | Cockpit / chase camera |
 | **Mouse drag** | Look around |
 | **P / Esc** | Pause |
@@ -51,7 +51,7 @@ Cyclic pitch is an *attitude command*: holding a key changes the pitch attitude,
 1. Normal cruise at the configured altitude, airspeed and wind (the menu has altitude 700/1000/1500 ft, airspeed 60/70/90 kt, and calm, light or strong wind).
 2. After 4 s the engine fails: a warning chime, a banner and **ENGINE OUT**, plus a nose-left yaw kick.
 3. Lower the collective at once. Hold about 55–70 kt. Keep NR in the green (90–110 %).
-4. Pick a landing area with **T**. A yellow beacon marks it. The top bar shows its bearing, its distance, and an advisory **IN REACH / MARGINAL / TOO FAR** for a straight glide at best-glide speed.
+4. Pick a landing area with **T** (only fields you can see ahead can be selected). A yellow beacon marks it. The top bar shows its bearing, its distance, and an advisory **IN REACH / MARGINAL / TOO FAR** for a straight glide at best-glide speed.
 5. Flare at about 40–80 ft, level the skids, and raise the collective in the last few feet to cushion.
 6. Touchdown is evaluated. The aircraft slides to a stop (or tips over), and the debrief appears.
 
