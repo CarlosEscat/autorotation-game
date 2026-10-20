@@ -121,6 +121,11 @@ describe('training levels', () => {
     expect(st.state).toBe('failed');
   });
 
+  it.each(LEVELS.map((l) => l.id))('%s always ends, even with nobody flying', (id) => {
+    const { st } = runLevel(id, () => {});
+    expect(st.state).not.toBe('running');
+  });
+
   it('instructions use touch wording', () => {
     const { texts } = runLevel('failure', botPilot(), 'touch');
     expect([...texts].some((t) => t.includes('COLL'))).toBe(true);

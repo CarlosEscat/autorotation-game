@@ -57,8 +57,8 @@ const pass = (stars: number, text = 'Goal reached!'): Update => ({ state: 'passe
 const fail = (reason: string): Update => ({ state: 'failed', reason, text: reason });
 
 /**
- * Wraps a per-step lesson function: a crash always fails the level, and once
- * the level is decided the result never changes.
+ * Wraps a per-step lesson function: a crash always fails the level, so does a
+ * flight that stops before the goal is met, and once decided the result never changes.
  */
 function lesson(step: (ctx: LevelContext, dt: number) => Update): Objective {
   let final: ObjectiveStatus | null = null;
@@ -67,6 +67,7 @@ function lesson(step: (ctx: LevelContext, dt: number) => Update): Objective {
       if (final) return final;
       const r = ctx.session.crashed && !ctx.session.result ? fail(ctx.session.crashReason ?? 'Crashed') : step(ctx, dt);
       const st: ObjectiveStatus = { state: 'running', progress: null, stars: 0, reason: null, ...r };
+      if (st.state === 'running' && ctx.session.result) Object.assign(st, fail('The flight ended before the goal was reached.'));
       if (st.state !== 'running') final = st;
       return st;
     },
@@ -165,7 +166,7 @@ export const LEVELS: LevelDef[] = [
     num: 3,
     title: 'Glide speed',
     teaches: 'Hold 55–70 kt: slower or faster than that, you sink faster.',
-    config: { ...BASE, altitudeFt: 2500, start: { x: 0, z: 1100, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } } },
+    config: { ...BASE, altitudeFt: 2500, airspeedKt: 65, start: { x: 0, z: 1100, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } } },
     target: null,
     gates: [],
     makeObjective() {

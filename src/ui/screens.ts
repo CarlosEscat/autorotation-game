@@ -1,6 +1,7 @@
 import { KEY_BINDINGS } from '../input/keyboard';
 import { Difficulty, FlightConfig, FlightResult } from '../game/session';
 import { Outcome } from '../game/landing';
+import { LEVELS, LevelDef, ObjectiveStatus, isUnlocked } from '../game/levels';
 
 export interface Settings {
   difficulty: Difficulty;
@@ -30,6 +31,8 @@ const OUTCOME_TEXT: Record<Outcome, string> = {
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+const stars = (n: number) => `<span class="stars">${'★'.repeat(n)}<span class="off">${'★'.repeat(3 - n)}</span></span>`;
+
 function screen(parent: HTMLElement, cls: string): HTMLElement {
   const el = document.createElement('div');
   el.className = `screen ${cls}`;
@@ -41,6 +44,9 @@ export interface MenuHandlers {
   onStart(settings: Settings): void;
   onTutorial(settings: Settings): void;
   onInstall(): void;
+  onTraining(): void;
+  onStartLevel(index: number): void;
+  onNextLevel(): void;
 }
 
 export class Screens {
@@ -48,6 +54,7 @@ export class Screens {
   private tutorial: HTMLElement;
   private pause: HTMLElement;
   private results: HTMLElement;
+  private training: HTMLElement;
   private all: HTMLElement[];
   installAvailable = false;
 
@@ -60,7 +67,8 @@ export class Screens {
     this.tutorial = screen(parent, 'tutorial');
     this.pause = screen(parent, 'pause');
     this.results = screen(parent, 'results');
-    this.all = [this.menu, this.tutorial, this.pause, this.results];
+    this.training = screen(parent, 'training');
+    this.all = [this.menu, this.tutorial, this.pause, this.results, this.training];
     this.buildMenu();
     this.buildTutorial();
     this.pause.innerHTML = `<div class="panel small"><h2>PAUSED</h2>
@@ -69,11 +77,13 @@ export class Screens {
       <button class="btn" data-a="menu">Main menu</button></div>`;
     this.bindButtons(this.pause);
     this.bindButtons(this.results);
+    this.bindButtons(this.training);
   }
 
   private bindButtons(root: HTMLElement) {
     root.addEventListener('click', (e) => {
-      const a = (e.target as HTMLElement).closest<HTMLElement>('[data-a]')?.dataset.a;
+      const el = (e.target as HTMLElement).closest<HTMLElement>('[data-a]');
+      const a = el?.dataset.a;
       if (!a) return;
       if (a === 'start') this.handlers.onStart(this.readSettings());
       else if (a === 'howto') this.handlers.onTutorial(this.readSettings());
@@ -83,6 +93,9 @@ export class Screens {
       else if (a === 'restart') this.handlers.onRestart();
       else if (a === 'menu') this.handlers.onMenu();
       else if (a === 'install') this.handlers.onInstall();
+      else if (a === 'training') this.handlers.onTraining();
+      else if (a === 'level') this.handlers.onStartLevel(Number(el!.dataset.i));
+      else if (a === 'next') this.handlers.onNextLevel();
     });
   }
 
@@ -101,6 +114,7 @@ export class Screens {
       </div>
       <div class="buttons">
         <button class="btn primary" data-a="start">Start flight</button>
+        <button class="btn" data-a="training">Training</button>
         <button class="btn" data-a="howto">How to fly</button>
         <button class="btn install" data-a="install" hidden>Install app</button>
       </div>
@@ -152,7 +166,43 @@ export class Screens {
     this.menu.querySelector<HTMLElement>('[data-a="install"]')!.hidden = !v;
   }
 
-  show(which: 'menu' | 'tutorial' | 'pause' | 'results' | null) {
+  /** Level picker; a level opens once the previous one is passed. */
+  showTraining(progress: Record<string, number>) {
+    const cards = LEVELS.map((l, i) => {
+      const open = isUnlocked(i, progress);
+      const got = progress[l.id] ?? 0;
+      return `<button class="level-card" data-a="level" data-i="${i}"${open ? '' : ' disabled'}>
+        <span class="lc-num">${l.num}</span><span class="lc-title">${esc(l.title)}</span>
+        <span class="lc-teach">${open ? esc(l.teaches) : `🔒 Pass level ${l.num - 1} to unlock`}</span>
+        ${stars(got)}</button>`;
+    }).join('');
+    this.training.innerHTML = `<div class="panel wide">
+      <h2>Training</h2>
+      <p class="tagline">Short lessons, one skill each. Pass a level to unlock the next.</p>
+      <div class="level-grid">${cards}</div>
+      <div class="buttons"><button class="btn" data-a="back">Back</button></div>
+    </div>`;
+    this.show('training');
+  }
+
+  showLevelResult(def: LevelDef, status: ObjectiveStatus, hasNext: boolean) {
+    const passed = status.state === 'passed';
+    const title = !passed ? 'TRY AGAIN' : hasNext ? 'LEVEL PASSED' : 'TRAINING COMPLETE';
+    const first = passed && hasNext
+      ? '<button class="btn primary" data-a="next">Next level <small>(Enter)</small></button><button class="btn" data-a="restart">Retry</button>'
+      : `<button class="btn primary" data-a="restart">Retry <small>(Enter)</small></button>`;
+    this.results.innerHTML = `<div class="panel results-panel">
+      <div class="lvl-num">Level ${def.num} · ${esc(def.title)}</div>
+      <div class="outcome ${passed ? 'excellent' : 'crash'}">${title}</div>
+      ${passed ? stars(status.stars) : ''}
+      <div class="reason">${esc(passed ? status.text : (status.reason ?? status.text))}</div>
+      <p class="lesson-recap">${passed && !hasNext ? 'You have flown every lesson. Try a free flight from the menu next.' : `Lesson: ${esc(def.teaches)}`}</p>
+      <div class="buttons">${first}<button class="btn" data-a="training">Training</button></div>
+    </div>`;
+    this.show('results');
+  }
+
+  show(which: 'menu' | 'tutorial' | 'pause' | 'results' | 'training' | null) {
     for (const el of this.all) el.classList.remove('visible');
     if (which) this[which].classList.add('visible');
   }

@@ -3,7 +3,8 @@ import { AIRCRAFT as A } from '../sim/aircraft';
 import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
-import { buildAreaMarkers, buildClouds, buildObstacles, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
+import { Gate, gateY } from '../game/levels';
+import { buildAreaMarkers, buildClouds, buildGate, buildObstacles, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
 
@@ -15,6 +16,7 @@ export class GameRenderer {
   private heli: HelicopterModel;
   private beacon: THREE.Group;
   private markers: THREE.Group | null = null;
+  private gates: THREE.Mesh[] = [];
   private sky: THREE.Mesh;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
@@ -67,6 +69,26 @@ export class GameRenderer {
   setTarget(area: LandingArea | null) {
     this.beacon.visible = !!area;
     if (area) this.beacon.position.set(area.cx, area.elevation, area.cz);
+  }
+
+  /** Shows the gates of a gate level; gates before `next` are hidden, the next one is yellow. */
+  setGates(gates: Gate[], next: number) {
+    if (this.gates.length !== gates.length) {
+      for (const m of this.gates) this.scene.remove(m);
+      this.gates = gates.map((g, i) => {
+        const m = buildGate(g.radius);
+        const to = gates[i + 1] ?? g;
+        const from = gates[i + 1] ? g : (gates[i - 1] ?? g);
+        m.position.set(g.x, gateY(g, this.world), g.z);
+        m.rotation.y = Math.atan2(to.x - from.x, to.z - from.z);
+        this.scene.add(m);
+        return m;
+      });
+    }
+    this.gates.forEach((m, i) => {
+      m.visible = i >= next;
+      (m.material as THREE.MeshBasicMaterial).color.set(i === next ? 0xffd23a : 0xffffff);
+    });
   }
 
   setMode(mode: CameraMode) {

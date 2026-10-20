@@ -186,6 +186,11 @@ export function buildTargetBeacon(): THREE.Group {
   return g;
 }
 
+/** A ring to fly through, facing +Z. Two materials so the next gate can be highlighted. */
+export function buildGate(radius: number): THREE.Mesh {
+  return new THREE.Mesh(new THREE.TorusGeometry(radius, 1.3, 5, 24), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+}
+
 export function buildSky(): THREE.Mesh {
   const geo = new THREE.SphereGeometry(4000, 16, 10);
   const colors: number[] = [];

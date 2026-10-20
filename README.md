@@ -57,6 +57,12 @@ Cyclic pitch is an *attitude command*: holding a key changes the pitch attitude,
 
 Coaching hints (on by default, toggle in the menu) suggest the next action in context. They never move the controls.
 
+**Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that.
+
+## Training
+
+**Training** in the menu has 8 short levels, each teaching one skill: basic flying (fly through gates), the engine failure, glide speed, picking a field, the flare, level and cushion, landing into the wind, and a final checkride on Realistic. Each level shows step-by-step instructions, ends as soon as its goal is met or failed, and awards 1–3 stars. Passing a level unlocks the next; stars are saved in the browser.
+
 ## Architecture
 
 ```
@@ -75,6 +81,7 @@ src/
     scoring.ts      FlightRecorder (metrics per fixed step) and computeScore()
     guidance.ts     Advisory bearing / reach info for the HUD
     hints.ts        Contextual coaching text
+    levels.ts       Training levels: start overrides, objectives (goal, instructions, stars), unlocking
     fixedStep.ts    Frame-time → fixed-step accumulator
     game.ts         State machine, main loop, wiring (the only module that touches everything)
   input/          InputManager (single source of ControlInputs), keyboard, touch
@@ -83,7 +90,7 @@ src/
   ui/             Menu, tutorial, pause and results screens
   audio/          Procedural WebAudio (rotor, turbine, horns, impacts)
 public/           manifest.webmanifest, sw.js, icons
-tests/            Vitest: flight-model cause/effect and full scripted attempts
+tests/            Vitest: flight-model cause/effect, full scripted attempts, training levels
 ```
 
 **Timing:** the simulation runs at a fixed **120 Hz** (`SIM_DT`). `FixedStepper` converts each frame's elapsed time into whole steps, capped to avoid a spiral of death. Rendering just draws the latest state. A test checks that 30 fps and 144 fps produce identical results.

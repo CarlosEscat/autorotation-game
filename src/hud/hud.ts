@@ -7,6 +7,12 @@ import { LandingArea } from '../world/world';
 const RPM_MIN = 60, RPM_MAX = 125;
 const rpmToPct = (r: number) => ((clamp(r, RPM_MIN, RPM_MAX) - RPM_MIN) / (RPM_MAX - RPM_MIN)) * 100;
 
+export interface Lesson {
+  title: string;
+  text: string;
+  progress: number | null;
+}
+
 export interface HudFrame {
   state: HelicopterState;
   engineOut: boolean;
@@ -81,6 +87,7 @@ export class Hud {
       </div>
       <div class="warnings"><div class="warn" data-w="engine">ENGINE OUT</div><div class="warn" data-w="lowrpm">LOW ROTOR RPM</div><div class="warn" data-w="highrpm">RPM HIGH</div><div class="warn" data-w="lowg">LOW-G</div></div>
       <div class="hint" data-k="hint"></div>
+      <div class="hint lesson"><div class="lesson-title" data-k="ltitle"></div><div data-k="ltext"></div><div class="lesson-bar"><div data-k="lbar"></div></div></div>
       <div class="banner"></div>`;
     parent.appendChild(this.root);
     for (const e of this.root.querySelectorAll<HTMLElement>('[data-k]')) this.els[e.dataset.k!] = e;
@@ -90,6 +97,17 @@ export class Hud {
 
   setVisible(v: boolean) {
     this.root.classList.toggle('visible', v);
+  }
+
+  /** Training instructions, shown where the coaching hints normally go. */
+  setLesson(l: Lesson | null) {
+    const e = this.els;
+    this.q('.lesson').classList.toggle('on', !!l);
+    if (!l) return;
+    if (e.ltitle.textContent !== l.title) e.ltitle.textContent = l.title;
+    if (e.ltext.textContent !== l.text) e.ltext.textContent = l.text;
+    e.lbar.parentElement!.hidden = l.progress === null;
+    e.lbar.style.width = `${(l.progress ?? 0) * 100}%`;
   }
 
   flash(text: string, kind: 'danger' | 'info' = 'danger', seconds = 2.2) {
@@ -124,6 +142,7 @@ export class Hud {
     e.hdg.textContent = String(Math.round(s.heading) % 360).padStart(3, '0');
     e.wind.textContent = f.windKt < 1 ? 'CALM' : `${String(Math.round(f.windFromDeg)).padStart(3, '0')}°/${Math.round(f.windKt)}KT`;
 
+    this.q('.target').style.visibility = f.target ? '' : 'hidden';
     if (f.target && f.guidance) {
       const g = f.guidance;
       e.tname.textContent = f.target.name.toUpperCase();

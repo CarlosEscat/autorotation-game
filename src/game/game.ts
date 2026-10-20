@@ -10,7 +10,8 @@ import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance } from './guidance';
 import { contextualHint } from './hints';
-import { FlightSession } from './session';
+import { LEVELS, LevelDef, Objective, ObjectiveStatus } from './levels';
+import { FlightConfig, FlightSession } from './session';
 
 type GameState = 'menu' | 'flying' | 'paused' | 'results';
 
@@ -19,10 +20,21 @@ interface Saved {
   settings: Settings;
   best: number | null;
   attempts: number;
+  /** Best stars per training level id. */
+  training: Record<string, number>;
+}
+
+interface ActiveLevel {
+  index: number;
+  def: LevelDef;
+  objective: Objective;
+  status: ObjectiveStatus;
+  /** Seconds of flying left before the result screen, once the level is decided. */
+  endIn: number | null;
 }
 
 function load(): Saved {
-  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0 };
+  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0, training: {} };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
@@ -55,7 +67,8 @@ export class Game {
   private saved = load();
   private session: FlightSession | null = null;
   private state: GameState = 'menu';
-  private targetIndex = 0;
+  private targetIndex: number | null = 0;
+  private level: ActiveLevel | null = null;
   private lastFrame = 0;
   private lowGTimer = 0;
   private installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
@@ -73,9 +86,12 @@ export class Game {
       },
       onTutorialStart: () => this.startFlight(this.saved.settings),
       onResume: () => this.resume(),
-      onRestart: () => this.startFlight(this.saved.settings),
+      onRestart: () => this.restart(),
       onMenu: () => this.toMenu(),
       onInstall: () => void this.installPrompt?.prompt(),
+      onTraining: () => this.toTraining(),
+      onStartLevel: (i) => this.startLevel(i),
+      onNextLevel: () => this.startLevel((this.level?.index ?? -1) + 1),
     });
     attachKeyboard(this.input);
     this.bindActions();
@@ -107,7 +123,7 @@ export class Game {
     const i = this.input;
     i.on('cycleTarget', () => {
       if (this.state !== 'flying') return;
-      this.targetIndex = (this.targetIndex + 1) % this.world.areas.length;
+      this.targetIndex = ((this.targetIndex ?? -1) + 1) % this.world.areas.length;
       this.renderer.setTarget(this.world.areas[this.targetIndex]);
     });
     i.on('camera', () => {
@@ -115,10 +131,13 @@ export class Game {
     });
     i.on('pause', () => (this.state === 'flying' ? this.pause() : this.state === 'paused' ? this.resume() : undefined));
     i.on('restart', () => {
-      if (this.state === 'results' || this.state === 'paused') this.startFlight(this.saved.settings);
+      if (this.state === 'results' || this.state === 'paused') this.restart();
     });
     i.on('confirm', () => {
-      if (this.state === 'results') this.startFlight(this.saved.settings);
+      if (this.state !== 'results') return;
+      const l = this.level;
+      if (l && l.status.state === 'passed' && l.index + 1 < LEVELS.length) this.startLevel(l.index + 1);
+      else this.restart();
     });
     i.on('mute', () => this.audio.setMuted(!this.audio.muted));
   }
@@ -126,13 +145,38 @@ export class Game {
   private startFlight(settings: Settings) {
     this.saved.settings = settings;
     save(this.saved);
+    this.level = null;
+    this.launch(configFromSettings(settings), 0);
+  }
+
+  private startLevel(index: number) {
+    const def = LEVELS[index];
+    if (!def) return this.toTraining();
+    const objective = def.makeObjective(this.world);
+    const target = def.target === null ? null : this.world.areas.findIndex((a) => a.id === def.target);
+    this.launch(def.config, target);
+    const status = objective.update(this.levelContext(), 0);
+    this.level = { index, def, objective, status, endIn: null };
+  }
+
+  private restart() {
+    if (this.level) this.startLevel(this.level.index);
+    else this.startFlight(this.saved.settings);
+  }
+
+  private levelContext() {
+    const area = this.targetIndex === null ? null : this.world.areas[this.targetIndex];
+    return { session: this.session!, targetId: area?.id ?? null, mode: this.input.mode };
+  }
+
+  private launch(cfg: FlightConfig, targetIndex: number | null) {
     this.audio.start();
-    const cfg = configFromSettings(settings);
     this.session = new FlightSession(this.world, cfg);
     this.input.reset(this.session.state.collective);
     this.stepper.reset();
-    this.targetIndex = 0;
-    this.renderer.setTarget(this.world.areas[0]);
+    this.targetIndex = targetIndex;
+    this.renderer.setTarget(targetIndex === null ? null : this.world.areas[targetIndex]);
+    this.renderer.setGates([], 0);
     this.renderer.setWind(cfg.windFromDeg, cfg.windKt);
     this.renderer.setMode('cockpit');
     this.screens.show(null);
@@ -157,8 +201,14 @@ export class Game {
     this.lastFrame = performance.now();
   }
 
+  private toTraining() {
+    this.toMenu();
+    this.screens.showTraining(this.saved.training);
+  }
+
   private toMenu() {
     this.state = 'menu';
+    this.level = null;
     this.hud.setVisible(false);
     this.touch.setVisible(false);
     document.body.classList.remove('flying');
@@ -176,8 +226,15 @@ export class Game {
       for (let n = this.stepper.advance(dt); n > 0; n--) {
         this.input.update(this.stepper.dt);
         session.step(this.input.controls, this.stepper.dt);
+        const l = this.level;
+        if (l && l.endIn === null) {
+          l.status = l.objective.update(this.levelContext(), this.stepper.dt);
+          // Keep flying briefly so the player sees the moment, then show the result.
+          if (l.status.state !== 'running') l.endIn = l.status.state === 'passed' && !session.result ? 1.2 : 1.6;
+        }
       }
       this.handleEvents(session);
+      if (this.level) this.updateLevel(this.level, dt);
       this.touch.sync(this.input.controls.collective);
     } else if (this.state === 'menu') {
       // Slow orbit of the scenery behind the menu.
@@ -188,11 +245,13 @@ export class Game {
     this.renderer.render(s, this.input.controls, { yaw: this.input.lookYaw, pitch: this.input.lookPitch }, this.state === 'paused' ? 0 : dt, session.tipOver);
 
     if (this.state === 'flying' || this.state === 'results') {
-      const target = this.world.areas[this.targetIndex];
-      const guidance = computeGuidance(s, target, session.wind);
+      const target = this.targetIndex === null ? null : this.world.areas[this.targetIndex];
+      const guidance = target && computeGuidance(s, target, session.wind);
       const engineOut = !s.engineRunning;
       this.lowGTimer = Math.max(0, this.lowGTimer - dt);
-      const hint = this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
+      const l = this.level;
+      const hint = !l && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
+      this.hud.setLesson(l && this.state === 'flying' ? { title: `Level ${l.def.num} · ${l.def.title}`, text: l.status.text, progress: l.status.progress } : null);
       this.hud.update(
         { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint, lowG: this.lowGTimer > 0 },
         dt,
@@ -224,10 +283,24 @@ export class Game {
           this.audio.impact(1);
           break;
         case 'stopped':
-          this.finish(session);
+          if (!this.level) this.finish(session);
           break;
       }
     }
+  }
+
+  private updateLevel(l: ActiveLevel, dt: number) {
+    this.renderer.setGates(l.def.gates, l.status.nextGate ?? 0);
+    if (l.endIn === null) return;
+    l.endIn -= dt;
+    if (l.endIn > 0) return;
+    if (l.status.state === 'passed') {
+      this.saved.training[l.def.id] = Math.max(this.saved.training[l.def.id] ?? 0, l.status.stars);
+      save(this.saved);
+    }
+    this.state = 'results';
+    this.touch.setVisible(false);
+    this.screens.showLevelResult(l.def, l.status, l.index + 1 < LEVELS.length);
   }
 
   private finish(session: FlightSession) {

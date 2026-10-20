@@ -74,6 +74,10 @@ html, body {
 
 .hint { position: absolute; left: 50%; bottom: calc(132px + var(--safe-b)); transform: translateX(-50%); max-width: min(86vw, 560px); text-align: center; font-weight: 700; font-size: 16px; padding: 8px 14px; border-radius: 10px; background: rgba(0, 0, 0, 0.55); border: 1px solid var(--edge); opacity: 0; transition: opacity 200ms; }
 .hint.on { opacity: 1; }
+.lesson { width: min(86vw, 560px); font-size: 15px; text-align: left; border-color: var(--accent); }
+.lesson-title { font: 800 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); margin-bottom: 3px; }
+.lesson-bar { height: 6px; margin-top: 7px; border-radius: 3px; background: rgba(255, 255, 255, 0.15); overflow: hidden; }
+.lesson-bar > div { height: 100%; background: var(--green); transition: width 120ms linear; }
 
 .banner { position: absolute; top: 34%; left: 50%; transform: translate(-50%, -50%) scale(0.9); font: 900 clamp(28px, 7vw, 64px)/1 var(--font); letter-spacing: 0.06em; opacity: 0; transition: opacity 150ms, transform 150ms; white-space: nowrap; -webkit-text-stroke: 2px #000; }
 .banner.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
@@ -163,6 +167,19 @@ body.touch .hint { bottom: calc(24px + var(--safe-b)); max-width: min(38vw, 380p
 .feedback ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; }
 .good-list li::marker { color: var(--green); }
 .bad-list li::marker { color: var(--amber); }
+
+.level-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.level-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 2px solid var(--edge); background: #1f2433; color: var(--ink); font: 600 12px/1.35 var(--font); cursor: pointer; touch-action: manipulation; }
+.level-card:hover:not(:disabled) { background: #2a3145; border-color: var(--accent); }
+.level-card:disabled { opacity: 0.45; cursor: default; }
+.lc-num { font: 900 22px/1 var(--mono); color: var(--accent); }
+.lc-title { font-weight: 800; font-size: 15px; }
+.lc-teach { opacity: 0.8; flex: 1; }
+.stars { color: var(--accent); letter-spacing: 0.1em; font-size: 15px; }
+.stars .off { color: rgba(255, 255, 255, 0.25); }
+.results-panel .stars { font-size: 36px; margin: 6px 0; }
+.lvl-num { font: 800 12px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.75; margin-bottom: 4px; }
+.lesson-recap { margin: 10px 0 4px; font-size: 14px; opacity: 0.85; }
 
 .rotate-hint { display: none; }
 @media (orientation: portrait) and (pointer: coarse) {
