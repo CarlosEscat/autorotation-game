@@ -16,6 +16,8 @@ export interface LandingArea {
   /** 0..1, how suitable the area is for a forced landing (used for scoring). */
   quality: number;
   elevation: number;
+  /** A deck on legs this high above the lake, instead of levelled ground. */
+  deckHeight?: number;
 }
 
 export type ObstacleKind = 'tree' | 'rock' | 'building' | 'tower';
@@ -80,6 +82,19 @@ export const AREA_DEFS: Omit<LandingArea, 'elevation'>[] = [
     quality: 1,
   },
   {
+    id: 'helipad',
+    name: 'Lake Helipad',
+    description: 'Small deck on legs in the middle of the lake. Precision required.',
+    cx: LAKE.x,
+    cz: LAKE.z,
+    halfWidth: 12,
+    halfLength: 12,
+    rotation: 0,
+    surface: 'paved',
+    quality: 0.8,
+    deckHeight: 3,
+  },
+  {
     id: 'strip',
     name: 'Farm Strip',
     description: 'Narrow dirt strip lined with tall trees.',
@@ -128,7 +143,9 @@ function rectDistance(a: LandingArea, x: number, z: number): number {
 }
 
 /** Areas added after the forests were laid out; trees are placed as if they were not there. */
-const LATER_AREAS = new Set(['runway']);
+const LATER_AREAS = new Set(['runway', 'helipad']);
+
+const waterLevelAt = () => baseHeight(LAKE.x, LAKE.z) - 3;
 
 export function createWorld(): World {
   // Each field sits at the average height of the land around it, so it is flush with its
@@ -138,7 +155,7 @@ export function createWorld(): World {
     for (let dz = -200; dz <= 200; dz += 50) for (let dx = -200; dx <= 200; dx += 50) (sum += baseHeight(cx + dx, cz + dz)), count++;
     return sum / count;
   };
-  const areas: LandingArea[] = AREA_DEFS.map((d) => ({ ...d, elevation: surroundings(d.cx, d.cz) }));
+  const areas: LandingArea[] = AREA_DEFS.map((d) => ({ ...d, elevation: d.deckHeight === undefined ? surroundings(d.cx, d.cz) : waterLevelAt() + d.deckHeight }));
   const { heights, waterLevel, heightAt, areaAt, surfaceAt, slopeAt } = buildTerrain(areas);
 
   // Lay the forests out on the terrain as it was before the airport, so every tree, boulder
@@ -148,7 +165,7 @@ export function createWorld(): World {
   const before = buildTerrain(early);
   const obstacles = placeObstacles(early, before.heightAt, before.surfaceAt, before.slopeAt)
     .map((o) => ({ ...o, base: heightAt(o.x, o.z) }))
-    .filter((o) => !areas.some((a) => LATER_AREAS.has(a.id) && inClearZone(a, o.x, o.z)));
+    .filter((o) => !areas.some((a) => LATER_AREAS.has(a.id) && a.deckHeight === undefined && inClearZone(a, o.x, o.z)));
   obstacles.push(...airportBuildings(areas.find((a) => a.id === 'runway')!, heightAt));
 
   // Spatial hash for collision queries.
@@ -192,7 +209,9 @@ function airportBuildings(rwy: LandingArea, heightAt: (x: number, z: number) => 
 /** Height field for the given landing areas, plus the queries that depend on it. */
 function buildTerrain(areas: LandingArea[]) {
   const lakeElev = baseHeight(LAKE.x, LAKE.z);
-  const waterLevel = lakeElev - 3;
+  const waterLevel = waterLevelAt();
+  const ground = areas.filter((a) => a.deckHeight === undefined);
+  const decks = areas.filter((a) => a.deckHeight !== undefined);
 
   const n = CELLS + 1;
   const cell = SIZE / CELLS;
@@ -205,13 +224,13 @@ function buildTerrain(areas: LandingArea[]) {
       const lr = Math.hypot(x - LAKE.x, z - LAKE.z);
       h = lerp(h, lakeElev - 10, 1 - smoothstep(LAKE.r * 0.55, LAKE.r * 1.15, lr));
       // Blend the ground to each field's level over ~180 m so approaches are gentle slopes, not drop-offs.
-      for (const a of areas) h = lerp(h, a.elevation, 1 - smoothstep(12, 180, rectDistance(a, x, z)));
+      for (const a of ground) h = lerp(h, a.elevation, 1 - smoothstep(12, 180, rectDistance(a, x, z)));
       heights[j * n + i] = h;
     }
   }
 
   // Interpolates exactly like the rendered triangle mesh (diagonal from (i+1,j) to (i,j+1)).
-  const heightAt = (x: number, z: number): number => {
+  const terrainAt = (x: number, z: number): number => {
     const gx = clamp((x + half) / cell, 0, CELLS - 1e-6);
     const gz = clamp((z + half) / cell, 0, CELLS - 1e-6);
     const i = Math.floor(gx), j = Math.floor(gz);
@@ -220,6 +239,11 @@ function buildTerrain(areas: LandingArea[]) {
     const h01 = heights[(j + 1) * n + i], h11 = heights[(j + 1) * n + i + 1];
     if (fx + fz <= 1) return h00 + (h10 - h00) * fx + (h01 - h00) * fz;
     return h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fz);
+  };
+  // Over a deck, the "ground" is the deck surface.
+  const heightAt = (x: number, z: number): number => {
+    for (const d of decks) if (rectDistance(d, x, z) === 0) return d.elevation;
+    return terrainAt(x, z);
   };
 
   const areaAt = (x: number, z: number, margin = 0) => areas.find((a) => rectDistance(a, x, z) <= margin);

@@ -124,6 +124,17 @@ describe('free flight', () => {
     expect(session.phase).toBe('cruise');
   });
 
+  it('lands on the lake helipad deck, not in the water', () => {
+    const pad = world.areas.find((a) => a.id === 'helipad')!;
+    const session = free({ altitudeFt: 30, airspeedKt: 0, start: { x: pad.cx, z: pad.cz, yaw: 0 } });
+    holdVs(session, neutralControls(session.state.collective), -1, 30);
+    expect(session.crashed).toBe(false);
+    expect(session.state.agl).toBeLessThan(0.05);
+    expect(session.state.pos.y).toBeGreaterThan(world.waterLevel + 2);
+    expect(world.surfaceAt(session.state.pos.x, session.state.pos.z)).toBe('paved');
+    expect(world.areaAt(session.state.pos.x, session.state.pos.z)?.id).toBe('helipad');
+  });
+
   it('a hard impact still crashes and ends the flight', () => {
     const session = free({ altitudeFt: 300, airspeedKt: 0, start: { x: -380, z: 360, yaw: 0 } });
     const c = neutralControls(0);

@@ -170,7 +170,7 @@ export function buildRunways(world: World): THREE.Group {
   const group = new THREE.Group();
   const asphalt = new THREE.MeshLambertMaterial({ color: 0x4b4d50, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const paint = new THREE.MeshLambertMaterial({ color: 0xf2f2ee, flatShading: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-  for (const a of world.areas.filter((r) => r.surface === 'paved')) {
+  for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
     const hw = a.halfWidth, hl = a.halfLength;
     const strip = (mat: THREE.Material, w: number, l: number, x: number, z: number, y: number) => {
@@ -190,7 +190,40 @@ export function buildRunways(world: World): THREE.Group {
     g.rotation.y = a.rotation;
     group.add(g);
   }
+  for (const a of world.areas.filter((d) => d.deckHeight !== undefined)) group.add(buildHelipad(a, paint));
   return group;
+}
+
+/** Concrete deck on four legs standing in the lake, with an edge line, touchdown circle and H. */
+function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const mat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const hw = a.halfWidth, hl = a.halfLength;
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(0x5a5d61));
+  slab.position.y = -0.5;
+  g.add(slab);
+  const legMat = mat(0x8a8d90);
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 16, 6), legMat);
+    leg.position.set(sx * (hw - 2), -9, sz * (hl - 2));
+    g.add(leg);
+  }
+  const flat = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, z = 0) => {
+    const mesh = new THREE.Mesh(geo.rotateX(-Math.PI / 2), m);
+    mesh.position.set(x, 0.03, z);
+    g.add(mesh);
+  };
+  for (const side of [-1, 1]) {
+    flat(new THREE.PlaneGeometry(hw * 2 - 1, 0.6), paint, 0, side * (hl - 0.8));
+    flat(new THREE.PlaneGeometry(0.6, hl * 2 - 1), paint, side * (hw - 0.8), 0);
+    flat(new THREE.PlaneGeometry(1.4, 9), paint, side * 3, 0); // H uprights
+  }
+  flat(new THREE.PlaneGeometry(4.6, 1.4), paint); // H crossbar
+  const yellow = new THREE.MeshLambertMaterial({ color: 0xffd23a, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  flat(new THREE.RingGeometry(7.6, 8.4, 32), yellow);
+  g.position.set(a.cx, a.elevation, a.cz);
+  g.rotation.y = a.rotation;
+  return g;
 }
 
 /** Corner markers and a windsock for each landing area. */
@@ -208,7 +241,7 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
       m.position.set(p.x, world.heightAt(p.x, p.z) + 0.6, p.z);
       group.add(m);
     }
-    const p = toWorld(a.halfWidth + 6, -a.halfLength * 0.6);
+    const p = a.deckHeight === undefined ? toWorld(a.halfWidth + 6, -a.halfLength * 0.6) : toWorld(a.halfWidth - 1, -a.halfLength + 1);
     const ground = world.heightAt(p.x, p.z);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6, 4), poleMat);
     pole.position.set(p.x, ground + 3, p.z);
