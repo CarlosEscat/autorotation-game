@@ -2,12 +2,15 @@ import * as THREE from 'three';
 import { LAKE, LandingArea, Surface, World } from '../world/world';
 import { mulberry32, valueNoise } from '../world/rng';
 
-const SURFACE_COLORS: Record<Exclude<Surface, 'grass' | 'water'>, number> = {
-  field: 0x8fc25a,
-  strip: 0xb08d5c,
-  paved: 0x6f706b,
-  rough: 0x9a9272,
+// Two tones per surface, blended by the same low-frequency noise as the grass.
+const SURFACE_COLORS: Record<Exclude<Surface, 'grass' | 'water'>, [number, number]> = {
+  field: [0x7aac52, 0x88b85c], // mow stripes
+  strip: [0xa38a64, 0xb09670],
+  paved: [0x707068, 0x7a7870],
+  rough: [0x8a8564, 0x9c9472],
 };
+
+const tmpColor = new THREE.Color();
 
 // Two grass tones blended by low-frequency noise, then tinted by altitude.
 const GRASS_A = new THREE.Color(0x4f9450), GRASS_B = new THREE.Color(0x8cb85a);
@@ -23,7 +26,7 @@ export function buildTerrain(world: World): THREE.Mesh {
   const pos = new Float32Array(tris * 9);
   const col = new Float32Array(tris * 9);
   const rnd = mulberry32(42);
-  const color = new THREE.Color();
+  const color = new THREE.Color(), grass = new THREE.Color();
   let p = 0;
 
   const vx = (i: number) => -half + i * cell;
@@ -32,18 +35,24 @@ export function buildTerrain(world: World): THREE.Mesh {
   const pushTri = (ax: number, az: number, ay: number, bx: number, bz: number, by: number, cx: number, cz: number, cy: number) => {
     const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
     const surface = world.surfaceAt(mx, mz);
-    const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
     const y = (ay + by + cy) / 3;
-    if (area) color.setHex(mowStripe(area, mx, mz) ? 0x8cc463 : 0x76b052);
-    else if (surface === 'grass' || surface === 'water') {
-      const blend = 0.65 * valueNoise(mx / 260, mz / 260, 5) + 0.35 * valueNoise(mx / 90, mz / 90, 9);
-      color.copy(GRASS_A).lerp(GRASS_B, THREE.MathUtils.smoothstep(blend, 0.25, 0.75));
-      // Golden on the low ground, darker and cooler up the hills.
-      color.lerp(LOWLAND, 0.25 * (1 - THREE.MathUtils.smoothstep(y, -10, 30)));
-      color.lerp(HIGHLAND, 0.7 * THREE.MathUtils.smoothstep(y, 40, 260));
-      const r = Math.hypot(mx, mz);
-      if (r > 1200) color.lerp(DISTANT, Math.min(1, (r - 1200) / 400));
-    } else color.setHex(SURFACE_COLORS[surface]);
+    const blend = 0.65 * valueNoise(mx / 260, mz / 260, 5) + 0.35 * valueNoise(mx / 90, mz / 90, 9);
+    grass.copy(GRASS_A).lerp(GRASS_B, THREE.MathUtils.smoothstep(blend, 0.25, 0.75));
+    // Golden on the low ground, darker and cooler up the hills.
+    grass.lerp(LOWLAND, 0.25 * (1 - THREE.MathUtils.smoothstep(y, -10, 30)));
+    grass.lerp(HIGHLAND, 0.7 * THREE.MathUtils.smoothstep(y, 40, 260));
+    const r = Math.hypot(mx, mz);
+    if (r > 1200) grass.lerp(DISTANT, Math.min(1, (r - 1200) / 400));
+    if (surface === 'grass' || surface === 'water') color.copy(grass);
+    else {
+      const [c0, c1] = SURFACE_COLORS[surface];
+      const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
+      const t = area ? (mowStripe(area, mx, mz) ? 1 : 0) : THREE.MathUtils.smoothstep(valueNoise(mx / 30, mz / 30, 13), 0.2, 0.8);
+      color.setHex(c0).lerp(tmpColor.setHex(c1), t);
+      // Triangles straddling the area edge go halfway to grass, softening the sawtooth outline.
+      const inside = [[ax, az], [bx, bz], [cx, cz]].filter(([x, z]) => world.surfaceAt(x, z) === surface).length;
+      if (inside < 3) color.lerp(grass, 0.5);
+    }
     if (ay < world.waterLevel + 1.5 && Math.hypot(mx - LAKE.x, mz - LAKE.z) < LAKE.r * 1.2) color.copy(SAND);
     color.multiplyScalar(0.98 + rnd() * 0.04);
     for (const [x, yy, z] of [[ax, ay, az], [bx, by, bz], [cx, cy, cz]]) {
@@ -75,9 +84,17 @@ function mowStripe(a: LandingArea, x: number, z: number) {
 }
 
 export function buildWater(world: World): THREE.Mesh {
-  const geo = new THREE.CircleGeometry(LAKE.r * 1.15, 24);
+  const geo = new THREE.CircleGeometry(LAKE.r * 1.15, 32);
   geo.rotateX(-Math.PI / 2);
-  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x3f7fb8, transparent: true, opacity: 0.88 }));
+  // Deep teal in the middle, lighter towards the shallow shore.
+  const deep = new THREE.Color(0x2f6788), shallow = new THREE.Color(0x5f9cae), c = new THREE.Color();
+  const p = geo.attributes.position, colors: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    c.copy(deep).lerp(shallow, Math.hypot(p.getX(i), p.getZ(i)) / (LAKE.r * 1.15));
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
   m.position.set(LAKE.x, world.waterLevel, LAKE.z);
   return m;
 }
