@@ -8,6 +8,9 @@ import { buildAreaMarkers, buildClouds, buildGate, buildObstacles, buildRunways,
 
 export type CameraMode = 'cockpit' | 'chase';
 
+const HAZE = 0xe6dcc6;
+const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
+
 /** Owns the Three.js scene. Reads simulation state; never changes it. */
 export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
@@ -18,11 +21,14 @@ export class GameRenderer {
   private markers: THREE.Group | null = null;
   private gates: THREE.Mesh[] = [];
   private sky: THREE.Mesh;
+  private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
   private rotorAngle = 0;
   private tailAngle = 0;
   mode: CameraMode = 'cockpit';
+  /** Real shadow map under the helicopter; when off, a blob shadow is drawn instead. */
+  shadows = true;
 
   constructor(
     private container: HTMLElement,
@@ -33,19 +39,36 @@ export class GameRenderer {
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
-    this.scene.fog = new THREE.Fog(0xbfdcf2, 500, 2600);
-    this.scene.background = new THREE.Color(0xbfdcf2);
-    this.scene.add(new THREE.HemisphereLight(0xdfefff, 0x4a5a2a, 1.6));
-    const sun = new THREE.DirectionalLight(0xfff2d8, 1.8);
-    sun.position.set(-0.5, 1, 0.35);
-    this.scene.add(sun);
+    // Low, warm late-afternoon sun with a soft sky fill and warm haze.
+    this.scene.fog = new THREE.Fog(HAZE, 450, 2800);
+    this.scene.background = new THREE.Color(HAZE);
+    this.scene.add(new THREE.HemisphereLight(0xbcd4f0, 0x4f5a3c, 1.0));
+    this.sun = new THREE.DirectionalLight(0xffdcb0, 2.4);
+    this.sun.position.copy(SUN_DIR);
+    this.scene.add(this.sun, this.sun.target);
+
+    // One small shadow map that follows the helicopter: only the helicopter casts.
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.sun.castShadow = true;
+    const sc = this.sun.shadow.camera;
+    sc.left = sc.bottom = -35;
+    sc.right = sc.top = 35;
+    sc.near = 1;
+    sc.far = 260;
+    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.normalBias = 0.04;
 
     this.sky = buildSky();
-    this.scene.add(this.sky, buildClouds(), buildTerrain(world), buildRunways(world), buildWater(world), buildObstacles(world));
+    const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
+    for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
+    this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
     this.beacon = buildTargetBeacon();
     this.scene.add(this.beacon);
 
     this.heli = buildHelicopter();
+    this.heli.root.traverse((o) => (o.castShadow = o !== this.heli.rotorDisc));
     this.scene.add(this.heli.root);
     this.heli.eye.add(this.camera);
 
@@ -131,6 +154,7 @@ export class GameRenderer {
     const cockpit = this.mode === 'cockpit';
     h.cockpit.visible = cockpit;
     h.exterior.visible = !cockpit;
+    h.shadowProxy.visible = cockpit && this.shadows;
 
     if (cockpit) {
       this.camera.position.set(0, 0, 0);
@@ -147,9 +171,12 @@ export class GameRenderer {
       if (look.yaw || look.pitch) this.camera.rotateY(look.yaw), this.camera.rotateX(look.pitch);
     }
 
+    this.renderer.shadowMap.enabled = this.shadows;
+    this.sun.target.position.set(s.pos.x, s.pos.y, s.pos.z);
+    this.sun.position.copy(SUN_DIR).multiplyScalar(120).add(this.sun.target.position);
     const gy = this.world.heightAt(s.pos.x, s.pos.z);
     this.shadow.position.set(s.pos.x, gy + 0.15, s.pos.z);
-    this.shadow.visible = !cockpit && s.pos.y - gy < 60;
+    this.shadow.visible = !this.shadows && !cockpit && s.pos.y - gy < 60;
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
     this.renderer.render(this.scene, this.camera);

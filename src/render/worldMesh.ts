@@ -10,8 +10,8 @@ const SURFACE_COLORS: Record<Exclude<Surface, 'grass' | 'water'>, number> = {
 };
 
 // Two grass tones blended by low-frequency noise, then tinted by altitude.
-const GRASS_A = new THREE.Color(0x6f9e48), GRASS_B = new THREE.Color(0x98b354);
-const LOWLAND = new THREE.Color(0xc4b464), HIGHLAND = new THREE.Color(0x4d6e58);
+const GRASS_A = new THREE.Color(0x4f9450), GRASS_B = new THREE.Color(0x8cb85a);
+const LOWLAND = new THREE.Color(0xc2bd6a), HIGHLAND = new THREE.Color(0x3f6b5e);
 const DISTANT = new THREE.Color(0x7d8a68), SAND = new THREE.Color(0xc9b07a);
 
 /** Flat-shaded terrain, coloured with smooth blends and only a faint per-triangle jitter. */
@@ -34,12 +34,12 @@ export function buildTerrain(world: World): THREE.Mesh {
     const surface = world.surfaceAt(mx, mz);
     const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
     const y = (ay + by + cy) / 3;
-    if (area) color.setHex(mowStripe(area, mx, mz) ? 0x9ccd60 : 0x86bd50);
+    if (area) color.setHex(mowStripe(area, mx, mz) ? 0x8cc463 : 0x76b052);
     else if (surface === 'grass' || surface === 'water') {
       const blend = 0.65 * valueNoise(mx / 260, mz / 260, 5) + 0.35 * valueNoise(mx / 90, mz / 90, 9);
       color.copy(GRASS_A).lerp(GRASS_B, THREE.MathUtils.smoothstep(blend, 0.25, 0.75));
       // Golden on the low ground, darker and cooler up the hills.
-      color.lerp(LOWLAND, 0.35 * (1 - THREE.MathUtils.smoothstep(y, -10, 30)));
+      color.lerp(LOWLAND, 0.25 * (1 - THREE.MathUtils.smoothstep(y, -10, 30)));
       color.lerp(HIGHLAND, 0.7 * THREE.MathUtils.smoothstep(y, 40, 260));
       const r = Math.hypot(mx, mz);
       if (r > 1200) color.lerp(DISTANT, Math.min(1, (r - 1200) / 400));
@@ -287,7 +287,7 @@ export function buildGate(radius: number): THREE.Mesh {
 export function buildSky(): THREE.Mesh {
   const geo = new THREE.SphereGeometry(4000, 16, 10);
   const colors: number[] = [];
-  const top = new THREE.Color(0x2f6fd0), horizon = new THREE.Color(0xbfdcf2);
+  const top = new THREE.Color(0x4f86cc), horizon = new THREE.Color(0xe6dcc6);
   const c = new THREE.Color();
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {

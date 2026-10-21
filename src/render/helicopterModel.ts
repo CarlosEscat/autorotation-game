@@ -17,6 +17,8 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 export interface HelicopterModel {
   root: THREE.Group;
   exterior: THREE.Group;
+  /** Copy of the exterior that only draws into the shadow map, for the cockpit view. */
+  shadowProxy: THREE.Group;
   cockpit: THREE.Group;
   rotor: THREE.Group;
   rotorDisc: THREE.Mesh;
@@ -130,6 +132,12 @@ export function buildHelicopter(): HelicopterModel {
   eye.position.set(0.36, 0.58, -0.72);
   cockpit.add(eye);
 
-  root.add(exterior, cockpit, rotor, rotorDisc);
-  return { root, exterior, cockpit, rotor, rotorDisc, tailRotor, cyclic, collective, eye };
+  const shadowProxy = exterior.clone();
+  const shadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });
+  shadowProxy.traverse((o) => {
+    if (o instanceof THREE.Mesh) o.material = shadowOnly;
+  });
+
+  root.add(exterior, shadowProxy, cockpit, rotor, rotorDisc);
+  return { root, exterior, shadowProxy, cockpit, rotor, rotorDisc, tailRotor, cyclic, collective, eye };
 }
