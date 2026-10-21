@@ -38,8 +38,10 @@ export class GameRenderer {
     private container: HTMLElement,
     private world: World,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.domElement.className = 'view';
+    // Smooth upscaling where the pixel ratio cap is below the device's (overrides the retro CSS).
+    this.renderer.domElement.style.imageRendering = 'auto';
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
@@ -133,9 +135,9 @@ export class GameRenderer {
   resize() {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    // Render at reduced resolution and scale up with crisp pixels for the retro look.
-    const scale = Math.min(window.devicePixelRatio || 1, 2) * (w * h > 1.4e6 ? 0.5 : 0.62);
-    this.renderer.setPixelRatio(scale);
+    // Native resolution, capped at 1.5x so retina screens don't pay for 4x the pixels;
+    // the same on every window size, unlike the old area-based downscale.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // Portrait screens get a wider vertical FOV so the horizon stays usable.
