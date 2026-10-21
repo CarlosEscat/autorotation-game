@@ -10,6 +10,7 @@ export type CameraMode = 'cockpit' | 'chase';
 
 const HAZE = 0xe6dcc6;
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
+const SWEEP_RATE = 12; // rad/s of the cockpit rotor sweep at 100 % NR
 
 /** Owns the Three.js scene. Reads simulation state; never changes it. */
 export class GameRenderer {
@@ -30,6 +31,7 @@ export class GameRenderer {
   private tmp2 = new THREE.Vector3();
   private rotorAngle = 0;
   private tailAngle = 0;
+  private sweepAngle = 0;
   mode: CameraMode = 'cockpit';
   /** Real shadow map under the helicopter; when off, a blob shadow is drawn instead. */
   shadows = true;
@@ -79,6 +81,7 @@ export class GameRenderer {
 
     this.heli = buildHelicopter();
     this.heli.root.traverse((o) => (o.castShadow = o !== this.heli.rotorDisc));
+    this.heli.rotorSweep.traverse((o) => (o.castShadow = false));
     this.scene.add(this.heli.root);
     this.heli.eye.add(this.camera);
 
@@ -165,7 +168,16 @@ export class GameRenderer {
     const spin = Math.min(1, s.omega / A.rotorOmega0);
     const blur = THREE.MathUtils.smoothstep(spin, 0.4, 0.85);
     h.rotor.visible = blur < 0.7;
-    (h.rotorDisc.material as THREE.MeshBasicMaterial).opacity = (cockpit ? 0.06 : 0.14) * blur + 0.03;
+    (h.rotorDisc.material as THREE.MeshBasicMaterial).opacity = 0.14 * blur + 0.03;
+    // From below, the flat disc reads as a static band across the top of the view, so the
+    // cockpit gets faint blade sweeps instead. They turn at a capped, NR-proportional rate
+    // (about 2 rev/s at 100 %) that steps smoothly at 60 fps; slow blades use the same angle.
+    this.sweepAngle += SWEEP_RATE * spin * Math.min(frameDt, 1 / 30);
+    h.rotorDisc.visible = !cockpit;
+    h.rotorSweep.visible = cockpit && blur > 0.01;
+    h.rotorSweep.rotation.y = this.sweepAngle;
+    ((h.rotorSweep.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.2 * blur;
+    if (cockpit) h.rotor.rotation.y = this.sweepAngle;
     h.cockpit.visible = cockpit;
     h.exterior.visible = !cockpit;
     h.shadowProxy.visible = cockpit && this.shadows;

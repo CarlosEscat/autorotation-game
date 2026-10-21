@@ -22,6 +22,8 @@ export interface HelicopterModel {
   cockpit: THREE.Group;
   rotor: THREE.Group;
   rotorDisc: THREE.Mesh;
+  /** Translucent blurred blade sweeps, used instead of the disc in the cockpit view. */
+  rotorSweep: THREE.Group;
   tailRotor: THREE.Group;
   cyclic: THREE.Group;
   collective: THREE.Group;
@@ -110,6 +112,25 @@ export function buildHelicopter(): HelicopterModel {
     new THREE.MeshBasicMaterial({ color: 0x3a3a42, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false }),
   );
   rotorDisc.position.set(0, A.hubHeight, 0);
+  // Each blade leaves a wedge-shaped blur, densest at the blade and fading out behind it
+  // and towards the tip (per-vertex alpha). The renderer turns it at a capped speed so it never strobes.
+  const rotorSweep = new THREE.Group();
+  rotorSweep.position.set(0, A.hubHeight, 0);
+  const sweepMat = new THREE.MeshBasicMaterial({ color: 0x2a2a30, vertexColors: true, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
+  const SWEEP_WIDTH = 0.8; // rad of trailing blur behind each blade
+  for (const start of [0, Math.PI]) {
+    const geo = new THREE.RingGeometry(0.5, A.rotorRadius, 20, 4, start, SWEEP_WIDTH);
+    const p = geo.attributes.position, rgba: number[] = [];
+    for (let i = 0; i < p.count; i++) {
+      let behind = (Math.atan2(p.getY(i), p.getX(i)) - start) % (Math.PI * 2);
+      if (behind < 0) behind += Math.PI * 2;
+      const t = Math.min(1, behind / SWEEP_WIDTH);
+      const tip = 1 - THREE.MathUtils.smoothstep(Math.hypot(p.getX(i), p.getY(i)), A.rotorRadius * 0.8, A.rotorRadius);
+      rgba.push(1, 1, 1, (1 - t) * (1 - t) * (0.25 + 0.75 * tip));
+    }
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(rgba, 4));
+    rotorSweep.add(new THREE.Mesh(geo.rotateX(Math.PI / 2), sweepMat));
+  }
 
   // --- Cockpit interior (pilot in the right seat) -----------------------------
   // A slim, low panel in matte warm charcoal: it reads clearly against the terrain and
@@ -165,6 +186,6 @@ export function buildHelicopter(): HelicopterModel {
     if (o instanceof THREE.Mesh) o.material = shadowOnly;
   });
 
-  root.add(exterior, shadowProxy, cockpit, rotor, rotorDisc);
-  return { root, exterior, shadowProxy, cockpit, rotor, rotorDisc, tailRotor, cyclic, collective, eye };
+  root.add(exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep);
+  return { root, exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep, tailRotor, cyclic, collective, eye };
 }
