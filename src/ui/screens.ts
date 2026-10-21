@@ -2,6 +2,8 @@ import { KEY_BINDINGS } from '../input/keyboard';
 import { Difficulty, FlightConfig, FlightResult } from '../game/session';
 import { Outcome } from '../game/landing';
 import { LEVELS, LevelDef, ObjectiveStatus, isUnlocked } from '../game/levels';
+import { KEY_WORDS, Mode } from '../game/hints';
+import { BRIEFINGS } from './briefings';
 
 export interface Settings {
   difficulty: Difficulty;
@@ -45,6 +47,7 @@ export interface MenuHandlers {
   onTutorial(settings: Settings): void;
   onInstall(): void;
   onTraining(): void;
+  onBriefing(index: number): void;
   onStartLevel(index: number): void;
   onNextLevel(): void;
 }
@@ -55,6 +58,7 @@ export class Screens {
   private pause: HTMLElement;
   private results: HTMLElement;
   private training: HTMLElement;
+  private briefing: HTMLElement;
   private all: HTMLElement[];
   installAvailable = false;
 
@@ -68,7 +72,8 @@ export class Screens {
     this.pause = screen(parent, 'pause');
     this.results = screen(parent, 'results');
     this.training = screen(parent, 'training');
-    this.all = [this.menu, this.tutorial, this.pause, this.results, this.training];
+    this.briefing = screen(parent, 'briefing');
+    this.all = [this.menu, this.tutorial, this.pause, this.results, this.training, this.briefing];
     this.buildMenu();
     this.buildTutorial();
     this.pause.innerHTML = `<div class="panel small"><h2>PAUSED</h2>
@@ -78,6 +83,7 @@ export class Screens {
     this.bindButtons(this.pause);
     this.bindButtons(this.results);
     this.bindButtons(this.training);
+    this.bindButtons(this.briefing);
   }
 
   private bindButtons(root: HTMLElement) {
@@ -94,6 +100,7 @@ export class Screens {
       else if (a === 'menu') this.handlers.onMenu();
       else if (a === 'install') this.handlers.onInstall();
       else if (a === 'training') this.handlers.onTraining();
+      else if (a === 'brief') this.handlers.onBriefing(Number(el!.dataset.i));
       else if (a === 'level') this.handlers.onStartLevel(Number(el!.dataset.i));
       else if (a === 'next') this.handlers.onNextLevel();
     });
@@ -171,7 +178,7 @@ export class Screens {
     const cards = LEVELS.map((l, i) => {
       const open = isUnlocked(i, progress);
       const got = progress[l.id] ?? 0;
-      return `<button class="level-card" data-a="level" data-i="${i}"${open ? '' : ' disabled'}>
+      return `<button class="level-card" data-a="brief" data-i="${i}"${open ? '' : ' disabled'}>
         <span class="lc-num">${l.num}</span><span class="lc-title">${esc(l.title)}</span>
         <span class="lc-teach">${open ? esc(l.teaches) : `🔒 Pass level ${l.num - 1} to unlock`}</span>
         ${stars(got)}</button>`;
@@ -183,6 +190,25 @@ export class Screens {
       <div class="buttons"><button class="btn" data-a="back">Back</button></div>
     </div>`;
     this.show('training');
+  }
+
+  /** What the lesson is about, before it starts. */
+  showBriefing(index: number, mode: Mode) {
+    const def = LEVELS[index];
+    const b = BRIEFINGS[def.id];
+    const steps = b.steps(KEY_WORDS[mode]).map((t) => `<li>${t}</li>`).join('');
+    this.briefing.innerHTML = `<div class="panel wide brief-panel">
+      <div class="lvl-num">Level ${def.num} of ${LEVELS.length}</div>
+      <h2>${esc(def.title)}</h2>
+      <p class="brief-goal">${esc(b.goal)}</p>
+      <div class="brief-body">
+        <div class="brief-diagram">${b.diagram}</div>
+        <div><h3>What to do</h3><ol class="steps">${steps}</ol></div>
+      </div>
+      <p class="brief-pass"><b>To pass:</b> ${esc(b.pass)}</p>
+      <div class="buttons"><button class="btn primary" data-a="level" data-i="${index}">Start <small>(Enter)</small></button><button class="btn" data-a="training">Back</button></div>
+    </div>`;
+    this.show('briefing');
   }
 
   showLevelResult(def: LevelDef, status: ObjectiveStatus, hasNext: boolean) {
@@ -202,7 +228,7 @@ export class Screens {
     this.show('results');
   }
 
-  show(which: 'menu' | 'tutorial' | 'pause' | 'results' | 'training' | null) {
+  show(which: 'menu' | 'tutorial' | 'pause' | 'results' | 'training' | 'briefing' | null) {
     for (const el of this.all) el.classList.remove('visible');
     if (which) this[which].classList.add('visible');
   }

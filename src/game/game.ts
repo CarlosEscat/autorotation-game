@@ -69,6 +69,8 @@ export class Game {
   private state: GameState = 'menu';
   private targetIndex: number | null = 0;
   private level: ActiveLevel | null = null;
+  /** Level whose briefing is on screen, so Enter can start it. */
+  private briefing: number | null = null;
   private lastFrame = 0;
   private lowGTimer = 0;
   private installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
@@ -90,8 +92,9 @@ export class Game {
       onMenu: () => this.toMenu(),
       onInstall: () => void this.installPrompt?.prompt(),
       onTraining: () => this.toTraining(),
+      onBriefing: (i) => this.toBriefing(i),
       onStartLevel: (i) => this.startLevel(i),
-      onNextLevel: () => this.startLevel((this.level?.index ?? -1) + 1),
+      onNextLevel: () => this.toBriefing((this.level?.index ?? -1) + 1),
     });
     attachKeyboard(this.input);
     this.bindActions();
@@ -136,9 +139,10 @@ export class Game {
       if (this.state === 'results' || this.state === 'paused') this.restart();
     });
     i.on('confirm', () => {
+      if (this.state === 'menu' && this.briefing !== null) return this.startLevel(this.briefing);
       if (this.state !== 'results') return;
       const l = this.level;
-      if (l && l.status.state === 'passed' && l.index + 1 < LEVELS.length) this.startLevel(l.index + 1);
+      if (l && l.status.state === 'passed' && l.index + 1 < LEVELS.length) this.toBriefing(l.index + 1);
       else this.restart();
     });
     i.on('mute', () => this.audio.setMuted(!this.audio.muted));
@@ -154,6 +158,7 @@ export class Game {
   private startLevel(index: number) {
     const def = LEVELS[index];
     if (!def) return this.toTraining();
+    this.briefing = null;
     const objective = def.makeObjective(this.world);
     const target = def.target === null ? null : this.world.areas.findIndex((a) => a.id === def.target);
     this.launch(def.config, target);
@@ -208,9 +213,17 @@ export class Game {
     this.screens.showTraining(this.saved.training);
   }
 
+  private toBriefing(index: number) {
+    if (!LEVELS[index]) return this.toTraining();
+    this.toMenu();
+    this.briefing = index;
+    this.screens.showBriefing(index, this.input.mode);
+  }
+
   private toMenu() {
     this.state = 'menu';
     this.level = null;
+    this.briefing = null;
     this.hud.setVisible(false);
     this.touch.setVisible(false);
     document.body.classList.remove('flying');
