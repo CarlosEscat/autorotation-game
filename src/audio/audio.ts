@@ -1,6 +1,6 @@
 /**
  * Procedural WebAudio sound: rotor "whop" (noise modulated at blade-passage
- * frequency), turbine whine, warning horns and an impact thud. No audio files.
+ * frequency), warning horns and an impact thud. No audio files.
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -8,8 +8,6 @@ export class AudioEngine {
   private rotorGain!: GainNode;
   private rotorLfo!: OscillatorNode;
   private rotorFilter!: BiquadFilterNode;
-  private turbine!: OscillatorNode;
-  private turbineGain!: GainNode;
   private horn!: OscillatorNode;
   private hornGain!: GainNode;
   muted = false;
@@ -49,14 +47,6 @@ export class AudioEngine {
     noise.start();
     this.rotorLfo.start();
 
-    this.turbine = ctx.createOscillator();
-    this.turbine.type = 'triangle';
-    this.turbine.frequency.value = 1900;
-    this.turbineGain = ctx.createGain();
-    this.turbineGain.gain.value = 0.02;
-    this.turbine.connect(this.turbineGain).connect(this.master);
-    this.turbine.start();
-
     this.horn = ctx.createOscillator();
     this.horn.type = 'square';
     this.horn.frequency.value = 520;
@@ -75,7 +65,7 @@ export class AudioEngine {
     void this.ctx?.suspend();
   }
 
-  update(rpmPct: number, engineAvail: number, lowRpmWarning: boolean, time: number) {
+  update(rpmPct: number, lowRpmWarning: boolean, time: number) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const r = Math.max(0, rpmPct) / 100;
@@ -83,8 +73,6 @@ export class AudioEngine {
     this.rotorLfo.frequency.setTargetAtTime(Math.max(0.5, 12.7 * r), t, 0.05);
     this.rotorGain.gain.setTargetAtTime(0.28 * Math.min(1, r * 1.1), t, 0.1);
     this.rotorFilter.frequency.setTargetAtTime(250 + 300 * r, t, 0.1);
-    this.turbine.frequency.setTargetAtTime(400 + 1500 * engineAvail, t, 0.3);
-    this.turbineGain.gain.setTargetAtTime(0.025 * engineAvail, t, 0.3);
     // Low-RPM horn: steady pulsing tone.
     const on = lowRpmWarning && Math.floor(time * 4) % 2 === 0;
     this.hornGain.gain.setTargetAtTime(on ? 0.07 : 0, t, 0.01);

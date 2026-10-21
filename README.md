@@ -93,7 +93,7 @@ src/
   render/         Three.js scene, cockpit and helicopter model, terrain/tree meshes
   hud/            HTML/CSS HUD overlay
   ui/             Menu, tutorial, pause and results screens
-  audio/          Procedural WebAudio (rotor, turbine, horns, impacts)
+  audio/          Procedural WebAudio (rotor, horns, impacts)
 public/           manifest.webmanifest, sw.js, icons
 tests/            Vitest: flight-model cause/effect, full scripted attempts, training levels
 ```

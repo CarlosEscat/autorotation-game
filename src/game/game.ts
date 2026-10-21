@@ -302,7 +302,7 @@ export class Game {
         { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint, lowG: this.lowGTimer > 0 },
         dt,
       );
-      this.audio.update(s.rpmPct, s.engineAvail, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000);
+      this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000);
     }
     requestAnimationFrame((t) => this.frame(t));
   }
