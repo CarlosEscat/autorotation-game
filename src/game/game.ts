@@ -73,7 +73,6 @@ export class Game {
   private briefing: number | null = null;
   private lastFrame = 0;
   private lowGTimer = 0;
-  private installPrompt: (Event & { prompt(): Promise<void> }) | null = null;
 
   constructor(root: HTMLElement) {
     this.renderer = new GameRenderer(root, this.world);
@@ -90,7 +89,6 @@ export class Game {
       onResume: () => this.resume(),
       onRestart: () => this.restart(),
       onMenu: () => this.toMenu(),
-      onInstall: () => void this.installPrompt?.prompt(),
       onTraining: () => this.toTraining(),
       onBriefing: (i) => this.toBriefing(i),
       onStartLevel: (i) => this.startLevel(i),
@@ -104,11 +102,6 @@ export class Game {
     if (coarse) this.input.mode = 'touch';
     window.addEventListener('touchstart', () => (this.input.mode = 'touch'), { passive: true });
 
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      this.installPrompt = e as Event & { prompt(): Promise<void> };
-      this.screens.setInstallAvailable(true);
-    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.state === 'flying') this.pause();
     });

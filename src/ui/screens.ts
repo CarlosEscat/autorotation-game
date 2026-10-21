@@ -45,7 +45,6 @@ function screen(parent: HTMLElement, cls: string): HTMLElement {
 export interface MenuHandlers {
   onStart(settings: Settings): void;
   onTutorial(settings: Settings): void;
-  onInstall(): void;
   onTraining(): void;
   onBriefing(index: number): void;
   onStartLevel(index: number): void;
@@ -60,7 +59,6 @@ export class Screens {
   private training: HTMLElement;
   private briefing: HTMLElement;
   private all: HTMLElement[];
-  installAvailable = false;
 
   constructor(
     parent: HTMLElement,
@@ -98,7 +96,6 @@ export class Screens {
       else if (a === 'resume') this.handlers.onResume();
       else if (a === 'restart') this.handlers.onRestart();
       else if (a === 'menu') this.handlers.onMenu();
-      else if (a === 'install') this.handlers.onInstall();
       else if (a === 'training') this.handlers.onTraining();
       else if (a === 'brief') this.handlers.onBriefing(Number(el!.dataset.i));
       else if (a === 'level') this.handlers.onStartLevel(Number(el!.dataset.i));
@@ -123,7 +120,6 @@ export class Screens {
         <button class="btn primary" data-a="start">Start flight</button>
         <button class="btn" data-a="training">Training</button>
         <button class="btn" data-a="howto">How to fly</button>
-        <button class="btn install" data-a="install" hidden>Install app</button>
       </div>
       <div class="best" data-k="best"></div>
       <p class="disclaimer">An educational arcade prototype. Not a flight-training device, and not a source of approved emergency procedures.</p>
@@ -166,11 +162,6 @@ export class Screens {
   setBest(best: number | null, attempts: number) {
     const el = this.menu.querySelector<HTMLElement>('[data-k="best"]')!;
     el.textContent = best === null ? '' : `Best score ${best} / 100 · ${attempts} attempt${attempts === 1 ? '' : 's'}`;
-  }
-
-  setInstallAvailable(v: boolean) {
-    this.installAvailable = v;
-    this.menu.querySelector<HTMLElement>('[data-a="install"]')!.hidden = !v;
   }
 
   /** Level picker; a level opens once the previous one is passed. */

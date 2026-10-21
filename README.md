@@ -25,7 +25,7 @@ Other scripts:
 
 ### Installing as a PWA
 
-Build and serve the app over HTTPS (or `localhost`). Supported browsers then offer "Install". On Chrome/Android an **Install app** button also appears in the main menu. The service worker precaches the app shell and bundles, so the game works offline after the first visit. Static hosting works anywhere because asset paths are relative (`base: './'`).
+Build and serve the app over HTTPS (or `localhost`). Supported browsers then offer "Install". The service worker precaches the app shell and bundles, so the game works offline after the first visit. Static hosting works anywhere because asset paths are relative (`base: './'`).
 
 ## Controls
 
