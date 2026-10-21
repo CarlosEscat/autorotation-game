@@ -283,7 +283,7 @@ export class FlightSession {
     const s = this.state;
     this.groundTime += dt;
     const surface = this.world.surfaceAt(s.pos.x, s.pos.z);
-    const mu = surface === 'rough' ? 0.8 : surface === 'strip' ? 0.45 : surface === 'water' ? 1.5 : 0.55;
+    const mu = surface === 'rough' ? 0.8 : surface === 'strip' ? 0.45 : surface === 'paved' ? 0.4 : surface === 'water' ? 1.5 : 0.55;
     const gs = hlen(s.vel);
     if (gs > 0) {
       const dv = Math.min(gs, mu * 9.81 * dt);

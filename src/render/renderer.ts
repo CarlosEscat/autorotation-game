@@ -4,7 +4,7 @@ import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
 import { Gate, gateY } from '../game/levels';
-import { buildAreaMarkers, buildClouds, buildGate, buildObstacles, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
+import { buildAreaMarkers, buildClouds, buildGate, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
 
@@ -41,7 +41,7 @@ export class GameRenderer {
     this.scene.add(sun);
 
     this.sky = buildSky();
-    this.scene.add(this.sky, buildClouds(), buildTerrain(world), buildWater(world), buildObstacles(world));
+    this.scene.add(this.sky, buildClouds(), buildTerrain(world), buildRunways(world), buildWater(world), buildObstacles(world));
     this.beacon = buildTargetBeacon();
     this.scene.add(this.beacon);
 

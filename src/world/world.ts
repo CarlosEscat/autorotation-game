@@ -1,7 +1,7 @@
 import { clamp, lerp, smoothstep } from '../sim/vec';
 import { fbm, mulberry32 } from './rng';
 
-export type Surface = 'grass' | 'field' | 'strip' | 'rough' | 'water';
+export type Surface = 'grass' | 'field' | 'strip' | 'paved' | 'rough' | 'water';
 
 export interface LandingArea {
   id: string;
@@ -18,7 +18,7 @@ export interface LandingArea {
   elevation: number;
 }
 
-export type ObstacleKind = 'tree' | 'rock' | 'building';
+export type ObstacleKind = 'tree' | 'rock' | 'building' | 'tower';
 
 export interface Obstacle {
   kind: ObstacleKind;
@@ -65,6 +65,18 @@ export const AREA_DEFS: Omit<LandingArea, 'elevation'>[] = [
     halfLength: 70,
     rotation: 0.25,
     surface: 'field',
+    quality: 1,
+  },
+  {
+    id: 'runway',
+    name: 'Airport Runway',
+    description: 'Long paved runway north of the lake, aligned north–south.',
+    cx: -180,
+    cz: -550,
+    halfWidth: 15,
+    halfLength: 375,
+    rotation: 0,
+    surface: 'paved',
     quality: 1,
   },
   {
@@ -115,6 +127,9 @@ function rectDistance(a: LandingArea, x: number, z: number): number {
   return Math.hypot(ox, oz);
 }
 
+/** Areas added after the forests were laid out; trees are placed as if they were not there. */
+const LATER_AREAS = new Set(['runway']);
+
 export function createWorld(): World {
   // Each field sits at the average height of the land around it, so it is flush with its
   // surroundings rather than in a bowl or on a mound.
@@ -124,6 +139,58 @@ export function createWorld(): World {
     return sum / count;
   };
   const areas: LandingArea[] = AREA_DEFS.map((d) => ({ ...d, elevation: surroundings(d.cx, d.cz) }));
+  const { heights, waterLevel, heightAt, areaAt, surfaceAt, slopeAt } = buildTerrain(areas);
+
+  // Lay the forests out on the terrain as it was before the airport, so every tree, boulder
+  // and random choice elsewhere stays exactly where it was. Then sit them on today's ground
+  // and clear the airport.
+  const early = areas.filter((a) => !LATER_AREAS.has(a.id));
+  const before = buildTerrain(early);
+  const obstacles = placeObstacles(early, before.heightAt, before.surfaceAt, before.slopeAt)
+    .map((o) => ({ ...o, base: heightAt(o.x, o.z) }))
+    .filter((o) => !areas.some((a) => LATER_AREAS.has(a.id) && inClearZone(a, o.x, o.z)));
+  obstacles.push(...airportBuildings(areas.find((a) => a.id === 'runway')!, heightAt));
+
+  // Spatial hash for collision queries.
+  const BUCKET = 40;
+  const buckets = new Map<number, Obstacle[]>();
+  const key = (bx: number, bz: number) => (bx + 1000) * 4096 + (bz + 1000);
+  for (const o of obstacles) {
+    const k = key(Math.floor(o.x / BUCKET), Math.floor(o.z / BUCKET));
+    let list = buckets.get(k);
+    if (!list) buckets.set(k, (list = []));
+    list.push(o);
+  }
+  const obstaclesNear = (x: number, z: number, radius: number): Obstacle[] => {
+    const out: Obstacle[] = [];
+    const r = radius + 12; // max obstacle radius
+    for (let bx = Math.floor((x - r) / BUCKET); bx <= Math.floor((x + r) / BUCKET); bx++) {
+      for (let bz = Math.floor((z - r) / BUCKET); bz <= Math.floor((z + r) / BUCKET); bz++) {
+        const list = buckets.get(key(bx, bz));
+        if (!list) continue;
+        for (const o of list) if (Math.hypot(o.x - x, o.z - z) <= radius + o.radius) out.push(o);
+      }
+    }
+    return out;
+  };
+
+  return { size: SIZE, cells: CELLS, heights, waterLevel, areas, obstacles, heightAt, surfaceAt, areaAt, slopeAt, obstaclesNear };
+}
+
+/** No trees beside a runway or under its approaches. */
+function inClearZone(a: LandingArea, x: number, z: number): boolean {
+  const { lx, lz } = localCoords(a, x, z);
+  return Math.abs(lx) < a.halfWidth + 60 && Math.abs(lz) < a.halfLength + 250;
+}
+
+/** Control tower west of the runway, beside its midpoint. */
+function airportBuildings(rwy: LandingArea, heightAt: (x: number, z: number) => number): Obstacle[] {
+  const x = rwy.cx - rwy.halfWidth - 70, z = rwy.cz + 60;
+  return [{ kind: 'tower', x, z, radius: 5, base: heightAt(x, z), height: 24, w: 6, d: 6, rot: 0 }];
+}
+
+/** Height field for the given landing areas, plus the queries that depend on it. */
+function buildTerrain(areas: LandingArea[]) {
   const lakeElev = baseHeight(LAKE.x, LAKE.z);
   const waterLevel = lakeElev - 3;
 
@@ -171,32 +238,7 @@ export function createWorld(): World {
     return Math.hypot(dx, dz);
   };
 
-  const obstacles = placeObstacles(areas, heightAt, surfaceAt, slopeAt);
-
-  // Spatial hash for collision queries.
-  const BUCKET = 40;
-  const buckets = new Map<number, Obstacle[]>();
-  const key = (bx: number, bz: number) => (bx + 1000) * 4096 + (bz + 1000);
-  for (const o of obstacles) {
-    const k = key(Math.floor(o.x / BUCKET), Math.floor(o.z / BUCKET));
-    let list = buckets.get(k);
-    if (!list) buckets.set(k, (list = []));
-    list.push(o);
-  }
-  const obstaclesNear = (x: number, z: number, radius: number): Obstacle[] => {
-    const out: Obstacle[] = [];
-    const r = radius + 12; // max obstacle radius
-    for (let bx = Math.floor((x - r) / BUCKET); bx <= Math.floor((x + r) / BUCKET); bx++) {
-      for (let bz = Math.floor((z - r) / BUCKET); bz <= Math.floor((z + r) / BUCKET); bz++) {
-        const list = buckets.get(key(bx, bz));
-        if (!list) continue;
-        for (const o of list) if (Math.hypot(o.x - x, o.z - z) <= radius + o.radius) out.push(o);
-      }
-    }
-    return out;
-  };
-
-  return { size: SIZE, cells: CELLS, heights, waterLevel, areas, obstacles, heightAt, surfaceAt, areaAt, slopeAt, obstaclesNear };
+  return { heights, waterLevel, heightAt, areaAt, surfaceAt, slopeAt };
 }
 
 function placeObstacles(

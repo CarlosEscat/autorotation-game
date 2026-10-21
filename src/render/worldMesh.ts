@@ -6,6 +6,7 @@ const SURFACE_COLORS: Record<Surface, number[]> = {
   grass: [0x5f9a3c, 0x67a343, 0x5a9238],
   field: [0x8cc653, 0x7dbb48],
   strip: [0xa78655, 0x9a7a4b],
+  paved: [0x6d6e6a, 0x66675f],
   rough: [0x8d8a6a, 0x7c7a5c, 0x9a9477],
   water: [0x3c6f9e],
 };
@@ -134,6 +135,60 @@ export function buildObstacles(world: World): THREE.Group {
     house.position.set(b.x, b.base, b.z);
     house.rotation.y = b.rot ?? 0;
     group.add(house);
+  }
+  for (const t of world.obstacles.filter((o) => o.kind === 'tower')) group.add(buildTower(t.x, t.base, t.z, t.height));
+  return group;
+}
+
+/** Airport control tower: concrete shaft, glazed cab, roof, antenna with a red light. */
+function buildTower(x: number, base: number, z: number, height: number): THREE.Group {
+  const g = new THREE.Group();
+  const mat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const box = (w: number, h: number, d: number, y: number, color: number) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
+    m.position.y = y + h / 2;
+    g.add(m);
+    return m;
+  };
+  const cab = height - 7;
+  box(11, 4, 8, 0, 0xcfc8b6).position.x = 5; // ground-floor office
+  box(4, cab, 4, 0, 0xd9d4c5); // shaft
+  box(7.6, 0.8, 7.6, cab, 0xf0f0f0);
+  box(7, 3.6, 7, cab + 0.8, 0x2c4a63); // glass
+  box(7.8, 0.8, 7.8, cab + 4.4, 0xf0f0f0); // roof
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 4), mat(0xdddddd));
+  mast.position.y = cab + 6.1;
+  const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
+  light.position.y = cab + 7.1;
+  g.add(mast, light);
+  g.position.set(x, base, z);
+  return g;
+}
+
+/** Asphalt and white markings over each paved area: edges, centreline, thresholds, aiming points. */
+export function buildRunways(world: World): THREE.Group {
+  const group = new THREE.Group();
+  const asphalt = new THREE.MeshLambertMaterial({ color: 0x4b4d50, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const paint = new THREE.MeshLambertMaterial({ color: 0xf2f2ee, flatShading: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  for (const a of world.areas.filter((r) => r.surface === 'paved')) {
+    const g = new THREE.Group();
+    const hw = a.halfWidth, hl = a.halfLength;
+    const strip = (mat: THREE.Material, w: number, l: number, x: number, z: number, y: number) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l).rotateX(-Math.PI / 2), mat);
+      m.position.set(x, y, z);
+      g.add(m);
+    };
+    strip(asphalt, hw * 2, hl * 2, 0, 0, 0.06);
+    const line = (w: number, l: number, x: number, z: number) => strip(paint, w, l, x, z, 0.1);
+    for (const side of [-1, 1]) {
+      line(0.9, hl * 2 - 2, side * (hw - 1.2), 0); // edge lines
+      for (let k = 0; k < 4; k++) line(1.6, 30, side * (3 + k * 2.8), side * (hl - 21)); // threshold stripes
+      for (const x of [-6, 6]) line(3, 45, x, side * (hl - 150)); // aiming points
+    }
+    for (let z = -hl + 90; z <= hl - 90; z += 60) line(0.9, 30, 0, z); // centreline dashes
+    g.position.set(a.cx, a.elevation, a.cz);
+    g.rotation.y = a.rotation;
+    group.add(g);
   }
   return group;
 }

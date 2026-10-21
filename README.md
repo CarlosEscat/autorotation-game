@@ -168,9 +168,10 @@ A crash caps the total at 45 and a damaged landing at 75, so surviving alone is 
 
 ## The world
 
-The world is about 3 × 3 km of seeded rolling terrain with forest patches, a lake, and three landing options:
+The world is about 3 × 3 km of seeded rolling terrain with forest patches, a lake, and four landing options:
 
 - **Big Meadow:** large, flat and mown. The best choice, about 0.8 km off the left side of the nose at the start.
+- **Airport Runway:** a 750 m paved runway north of the lake, aligned north–south, with centreline, threshold and edge markings and a control tower on its west side. Long and smooth, but about 1.6 km from the start.
 - **Farm Strip:** a narrow dirt strip lined with tall trees, aligned north–south (into the default north wind). Precision required.
 - **Rocky Clearing:** the closest option, but rough and strewn with boulders.
 

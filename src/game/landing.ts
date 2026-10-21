@@ -35,7 +35,8 @@ export interface StrikeResult {
   obstacle: Obstacle;
 }
 
-const obstacleName = (o: Obstacle) => (o.kind === 'tree' ? 'a tree' : o.kind === 'rock' ? 'a boulder' : 'a building');
+const OBSTACLE_NAMES: Record<Obstacle['kind'], string> = { tree: 'a tree', rock: 'a boulder', building: 'a building', tower: 'the control tower' };
+const obstacleName = (o: Obstacle) => OBSTACLE_NAMES[o.kind];
 export const describeStrike = (s: StrikeResult) => `${s.part[0].toUpperCase()}${s.part.slice(1)} struck ${obstacleName(s.obstacle)}`;
 
 /** In-flight collision of rotor disk, tail rotor or fuselage with obstacles. */
@@ -87,6 +88,7 @@ export interface TouchdownReport {
 export const RUN_ON_TOLERANCE: Record<Surface, number> = {
   field: 8,
   strip: 7,
+  paved: 8,
   grass: 4,
   rough: 1.5,
   water: 0,
