@@ -69,6 +69,8 @@ export class Game {
   private state: GameState = 'menu';
   private targetIndex: number | null = 0;
   private level: ActiveLevel | null = null;
+  /** Flying around: no engine failure, no score. */
+  private free = false;
   /** Level whose briefing is on screen, so Enter can start it. */
   private briefing: number | null = null;
   private lastFrame = 0;
@@ -81,6 +83,7 @@ export class Game {
     this.touch = new TouchControls(root, this.input);
     this.screens = new Screens(root, this.saved.settings, {
       onStart: (s) => this.startFlight(s),
+      onFreeFlight: (s) => this.startFreeFlight(s),
       onTutorial: (s) => {
         this.saved.settings = s;
         this.screens.show('tutorial');
@@ -145,13 +148,23 @@ export class Game {
     this.saved.settings = settings;
     save(this.saved);
     this.level = null;
+    this.free = false;
     this.launch(configFromSettings(settings), 0);
+  }
+
+  private startFreeFlight(settings: Settings) {
+    this.saved.settings = settings;
+    save(this.saved);
+    this.level = null;
+    this.free = true;
+    this.launch({ ...configFromSettings(settings), failureDelay: 1e9, freeFlight: true }, null);
   }
 
   private startLevel(index: number) {
     const def = LEVELS[index];
     if (!def) return this.toTraining();
     this.briefing = null;
+    this.free = false;
     const objective = def.makeObjective(this.world);
     const target = def.target === null ? null : this.world.areas.findIndex((a) => a.id === def.target);
     this.launch(def.config, target);
@@ -161,6 +174,7 @@ export class Game {
 
   private restart() {
     if (this.level) this.startLevel(this.level.index);
+    else if (this.free) this.startFreeFlight(this.saved.settings);
     else this.startFlight(this.saved.settings);
   }
 
@@ -258,8 +272,14 @@ export class Game {
       const engineOut = !s.engineRunning;
       this.lowGTimer = Math.max(0, this.lowGTimer - dt);
       const l = this.level;
-      const hint = !l && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
-      this.hud.setLesson(l && this.state === 'flying' ? { title: `Level ${l.def.num} · ${l.def.title}`, text: l.status.text, progress: l.status.progress } : null);
+      const hint = !l && !this.free && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
+      const lesson =
+        l && this.state === 'flying'
+          ? { title: `Level ${l.def.num} · ${l.def.title}`, text: l.status.text, progress: l.status.progress }
+          : this.free && this.state === 'flying' && s.time < 8
+            ? { title: 'Fly around', text: 'The engine will not fail. Explore, land anywhere and take off again.', progress: null }
+            : null;
+      this.hud.setLesson(lesson);
       this.hud.update(
         { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint, lowG: this.lowGTimer > 0 },
         dt,
@@ -291,7 +311,8 @@ export class Game {
           this.audio.impact(1);
           break;
         case 'stopped':
-          if (!this.level) this.finish(session);
+          if (this.free) this.finishFreeFlight(session);
+          else if (!this.level) this.finish(session);
           break;
       }
     }
@@ -309,6 +330,14 @@ export class Game {
     this.state = 'results';
     this.touch.setVisible(false);
     this.screens.showLevelResult(l.def, l.status, l.index + 1 < LEVELS.length);
+  }
+
+  private finishFreeFlight(session: FlightSession) {
+    this.state = 'results';
+    this.touch.setVisible(false);
+    setTimeout(() => {
+      if (this.state === 'results') this.screens.showFreeFlightCrash(session.crashReason);
+    }, 700);
   }
 
   private finish(session: FlightSession) {

@@ -89,3 +89,46 @@ describe('full attempts', () => {
   });
 
 });
+
+describe('free flight', () => {
+  const free = (cfg: Partial<FlightConfig> = {}) =>
+    new FlightSession(world, { ...DEFAULT_CONFIG, windKt: 0, failureDelay: 1e9, freeFlight: true, ...cfg });
+
+  /** Hold a vertical speed with the collective (integral control), wings level. */
+  const holdVs = (session: FlightSession, c: ReturnType<typeof neutralControls>, vs: number, seconds: number) => {
+    for (let t = 0; t < seconds; t += 1 / 120) {
+      c.collective = Math.max(0, Math.min(1, c.collective + (vs - session.state.verticalSpeed) * 0.004));
+      c.cyclicPitch = Math.max(-1, Math.min(1, -session.state.pitch * 3));
+      session.step(c);
+    }
+  };
+
+  it('never fails the engine', () => {
+    const session = free({ altitudeFt: 1000 });
+    holdVs(session, neutralControls(session.state.collective), 0, 120);
+    expect(session.state.engineRunning).toBe(true);
+    expect(session.phase).toBe('cruise');
+  });
+
+  it('a gentle touchdown rests on the ground, and the collective lifts off again', () => {
+    const session = free({ altitudeFt: 40, airspeedKt: 0, start: { x: -380, z: 360, yaw: 0 } });
+    const c = neutralControls(session.state.collective);
+    holdVs(session, c, -1, 30);
+    expect(session.crashed).toBe(false);
+    expect(session.phase).toBe('cruise');
+    expect(session.state.agl).toBeLessThan(0.05);
+    expect(session.events.some((e) => e.type === 'touchdown')).toBe(true);
+
+    holdVs(session, c, 2, 8);
+    expect(session.state.agl).toBeGreaterThan(5);
+    expect(session.phase).toBe('cruise');
+  });
+
+  it('a hard impact still crashes and ends the flight', () => {
+    const session = free({ altitudeFt: 300, airspeedKt: 0, start: { x: -380, z: 360, yaw: 0 } });
+    const c = neutralControls(0);
+    for (let n = 0; n < 120 * 40 && session.phase !== 'done'; n++) session.step(c);
+    expect(session.crashed).toBe(true);
+    expect(session.phase).toBe('done');
+  });
+});

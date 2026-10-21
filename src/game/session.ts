@@ -34,6 +34,8 @@ export interface FlightConfig {
   cushion?: boolean;
   /** Multiplier on touchdown limits; defaults to 2.5 in easy mode, 1 otherwise. */
   leniency?: number;
+  /** Fly around: the engine never fails and a safe touchdown leaves you on the skids, free to lift off again. */
+  freeFlight?: boolean;
 }
 
 export interface StartOverride {
@@ -88,6 +90,8 @@ export class FlightSession {
   /** Visual-only: roll angle of a helicopter that tipped over. */
   tipOver = 0;
   private groundTime = 0;
+  /** Free flight only: resting on the skids with the engine running. */
+  private landed = false;
   private assistAnnounced = false;
   private flare = new FlareModel();
 
@@ -145,7 +149,7 @@ export class FlightSession {
     if (this.phase === 'ground') return this.stepGround(dt);
 
     const s = this.state;
-    if (this.phase === 'cruise' && s.time >= this.config.failureDelay) {
+    if (this.phase === 'cruise' && !this.config.freeFlight && s.time >= this.config.failureDelay) {
       failEngine(s);
       this.rec.onFailure(s);
       this.phase = 'autorotation';
@@ -178,7 +182,35 @@ export class FlightSession {
     if (strike) return this.onStrike(strike);
 
     const contact = checkGroundContact(s, this.world);
-    if (contact) this.onTouchdown(contact);
+    if (contact && this.config.freeFlight && this.phase === 'cruise') this.onPoweredContact(contact, dt);
+    else if (contact) this.onTouchdown(contact);
+    else this.landed = false;
+  }
+
+  /** Free flight: a touchdown that would not crash leaves the helicopter sitting on its skids. */
+  private onPoweredContact(contact: GroundContact, dt: number) {
+    const s = this.state;
+    if (!this.landed) {
+      const td = evaluateTouchdown(s, this.world, contact, this.wind, this.leniency);
+      if (td.rollover || td.surface === 'water' || td.damage + this.flightDamage >= 60) return this.onTouchdown(contact);
+      this.landed = true;
+      this.touchdown = td;
+      this.events.push({ type: 'touchdown', text: 'TOUCHDOWN' });
+    }
+    // Sit on the skids: no sinking into the ground, skid friction, level attitude.
+    s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + A.skidHeight;
+    s.vel.y = Math.max(0, s.vel.y);
+    const gs = hlen(s.vel);
+    if (gs > 0) {
+      const dv = Math.min(gs, 0.55 * 9.81 * dt);
+      s.vel.x -= (s.vel.x / gs) * dv;
+      s.vel.z -= (s.vel.z / gs) * dv;
+    }
+    const level = Math.min(1, dt * 6);
+    s.pitch -= s.pitch * level;
+    s.pitchCmd = s.pitch;
+    s.roll -= s.roll * level;
+    updateDerived(s, this.env);
   }
 
   /** Easy-mode landing assist: limits the sink rate, bleeds off ground speed and levels the skids. */

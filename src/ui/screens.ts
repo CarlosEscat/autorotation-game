@@ -44,6 +44,7 @@ function screen(parent: HTMLElement, cls: string): HTMLElement {
 
 export interface MenuHandlers {
   onStart(settings: Settings): void;
+  onFreeFlight(settings: Settings): void;
   onTutorial(settings: Settings): void;
   onTraining(): void;
   onBriefing(index: number): void;
@@ -90,6 +91,7 @@ export class Screens {
       const a = el?.dataset.a;
       if (!a) return;
       if (a === 'start') this.handlers.onStart(this.readSettings());
+      else if (a === 'free') this.handlers.onFreeFlight(this.readSettings());
       else if (a === 'howto') this.handlers.onTutorial(this.readSettings());
       else if (a === 'fly') this.handlers.onTutorialStart();
       else if (a === 'back') this.show('menu');
@@ -118,6 +120,7 @@ export class Screens {
       </div>
       <div class="buttons">
         <button class="btn primary" data-a="start">Start flight</button>
+        <button class="btn" data-a="free">Fly around</button>
         <button class="btn" data-a="training">Training</button>
         <button class="btn" data-a="howto">How to fly</button>
       </div>
@@ -222,6 +225,16 @@ export class Screens {
   show(which: 'menu' | 'tutorial' | 'pause' | 'results' | 'training' | 'briefing' | null) {
     for (const el of this.all) el.classList.remove('visible');
     if (which) this[which].classList.add('visible');
+  }
+
+  /** Fly around ended in a crash: no score, just try again or leave. */
+  showFreeFlightCrash(reason: string | null) {
+    this.results.innerHTML = `<div class="panel small results-panel">
+      <div class="outcome crash">CRASH</div>
+      ${reason ? `<div class="reason">${esc(reason)}</div>` : ''}
+      <div class="buttons"><button class="btn primary" data-a="restart">Restart <small>(Enter)</small></button><button class="btn" data-a="menu">Exit to menu</button></div>
+    </div>`;
+    this.show('results');
   }
 
   showResults(r: FlightResult, best: number, isNewBest: boolean) {
