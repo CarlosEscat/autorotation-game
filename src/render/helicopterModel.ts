@@ -112,22 +112,28 @@ export function buildHelicopter(): HelicopterModel {
   rotorDisc.position.set(0, A.hubHeight, 0);
 
   // --- Cockpit interior (pilot in the right seat) -----------------------------
-  // Light warm greys so the cockpit frames the view instead of blocking it.
-  const panelMat = mat(0x8f8a80), gaugeMat = mat(0x262a2e), rim = mat(0xe8e2d4);
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.34, 0.08), panelMat);
-  panel.position.set(0.12, -0.14, -1.6);
-  panel.rotation.x = -0.45;
-  const glare = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.03, 0.18), mat(0xa49e92));
-  glare.position.set(0.12, 0.0, -1.62);
+  // A slim, low panel in matte warm charcoal: it reads clearly against the terrain and
+  // stays below the HUD instruments, which sit just above the bottom of the screen.
+  const panelMat = mat(0x3d3833), gaugeMat = mat(0x141414), rim = mat(0xcfc6b4), needleMat = mat(0xf0e6d0);
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.2, 0.06), panelMat);
+  panel.position.set(0.12, -0.205, -1.62);
+  panel.rotation.x = -0.75; // face tilted up towards the eye so the gauges read
+  // Shallow glare shield along the top-back edge, so it doesn't hide the gauges.
+  const glare = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.03, 0.08), mat(0x2a2623));
+  glare.name = 'glare';
+  glare.position.set(0.12, -0.12, -1.71);
   panel.add(...[-0.5, -0.25, 0, 0.25, 0.5].flatMap((x, i) => {
-    const g = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.02, 10).rotateX(Math.PI / 2), gaugeMat);
-    g.position.set(x, i % 2 ? 0.05 : -0.04, 0.05);
-    const r = new THREE.Mesh(new THREE.TorusGeometry(0.072, 0.007, 3, 10), rim);
+    const g = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.02, 12).rotateX(Math.PI / 2), gaugeMat);
+    g.position.set(x, 0.035, 0.035);
+    const r = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.006, 3, 12), rim);
     r.position.copy(g.position);
-    return [g, r];
+    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.034, 0.004).translate(0, 0.017, 0), needleMat);
+    needle.position.copy(g.position).add(V(0, 0, 0.012));
+    needle.rotation.z = -0.9 + i * 0.45;
+    return [g, r, needle];
   }));
   const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.45), panelMat);
-  pedestal.position.set(0, -0.55, -1.35);
+  pedestal.position.set(0, -0.6, -1.35);
   cockpit.add(panel, glare, pedestal);
   // No canopy frame: with the roof not modelled, pillars under a metre from the eye
   // only dead-end in the view, so the windscreen is left open.
