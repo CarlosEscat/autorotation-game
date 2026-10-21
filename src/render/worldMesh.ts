@@ -1,17 +1,20 @@
 import * as THREE from 'three';
 import { LAKE, LandingArea, Surface, World } from '../world/world';
-import { mulberry32 } from '../world/rng';
+import { mulberry32, valueNoise } from '../world/rng';
 
-const SURFACE_COLORS: Record<Surface, number[]> = {
-  grass: [0x5f9a3c, 0x67a343, 0x5a9238],
-  field: [0x8cc653, 0x7dbb48],
-  strip: [0xa78655, 0x9a7a4b],
-  paved: [0x6d6e6a, 0x66675f],
-  rough: [0x8d8a6a, 0x7c7a5c, 0x9a9477],
-  water: [0x3c6f9e],
+const SURFACE_COLORS: Record<Exclude<Surface, 'grass' | 'water'>, number> = {
+  field: 0x8fc25a,
+  strip: 0xb08d5c,
+  paved: 0x6f706b,
+  rough: 0x9a9272,
 };
 
-/** Flat-shaded terrain with one colour per triangle, N64 style. */
+// Two grass tones blended by low-frequency noise, then tinted by altitude.
+const GRASS_A = new THREE.Color(0x6f9e48), GRASS_B = new THREE.Color(0x98b354);
+const LOWLAND = new THREE.Color(0xc4b464), HIGHLAND = new THREE.Color(0x4d6e58);
+const DISTANT = new THREE.Color(0x7d8a68), SAND = new THREE.Color(0xc9b07a);
+
+/** Flat-shaded terrain, coloured with smooth blends and only a faint per-triangle jitter. */
 export function buildTerrain(world: World): THREE.Mesh {
   const n = world.cells + 1;
   const cell = world.size / world.cells;
@@ -30,17 +33,19 @@ export function buildTerrain(world: World): THREE.Mesh {
     const mx = (ax + bx + cx) / 3, mz = (az + bz + cz) / 3;
     const surface = world.surfaceAt(mx, mz);
     const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
-    const palette = SURFACE_COLORS[surface === 'water' ? 'grass' : surface];
-    let hex = palette[Math.floor(rnd() * palette.length)];
-    if (area) hex = mowStripe(area, mx, mz) ? 0x95cf5c : 0x7fbc4a;
-    color.setHex(hex);
     const y = (ay + by + cy) / 3;
-    // Darken low ground and lighten hilltops a touch, plus distant rim tint.
-    const shade = 0.88 + Math.max(-0.12, Math.min(0.18, y / 160));
-    const r = Math.hypot(mx, mz);
-    if (r > 1200 && surface === 'grass') color.lerp(new THREE.Color(0x6f7f5a), Math.min(1, (r - 1200) / 400));
-    if (ay < world.waterLevel + 1.5 && Math.hypot(mx - LAKE.x, mz - LAKE.z) < LAKE.r * 1.2) color.setHex(0xb8a675);
-    color.multiplyScalar(shade);
+    if (area) color.setHex(mowStripe(area, mx, mz) ? 0x9ccd60 : 0x86bd50);
+    else if (surface === 'grass' || surface === 'water') {
+      const blend = 0.65 * valueNoise(mx / 260, mz / 260, 5) + 0.35 * valueNoise(mx / 90, mz / 90, 9);
+      color.copy(GRASS_A).lerp(GRASS_B, THREE.MathUtils.smoothstep(blend, 0.25, 0.75));
+      // Golden on the low ground, darker and cooler up the hills.
+      color.lerp(LOWLAND, 0.35 * (1 - THREE.MathUtils.smoothstep(y, -10, 30)));
+      color.lerp(HIGHLAND, 0.7 * THREE.MathUtils.smoothstep(y, 40, 260));
+      const r = Math.hypot(mx, mz);
+      if (r > 1200) color.lerp(DISTANT, Math.min(1, (r - 1200) / 400));
+    } else color.setHex(SURFACE_COLORS[surface]);
+    if (ay < world.waterLevel + 1.5 && Math.hypot(mx - LAKE.x, mz - LAKE.z) < LAKE.r * 1.2) color.copy(SAND);
+    color.multiplyScalar(0.98 + rnd() * 0.04);
     for (const [x, yy, z] of [[ax, ay, az], [bx, by, bz], [cx, cy, cz]]) {
       pos[p] = x; pos[p + 1] = yy; pos[p + 2] = z;
       col[p] = color.r; col[p + 1] = color.g; col[p + 2] = color.b;
