@@ -313,15 +313,19 @@ export function buildGate(radius: number): THREE.Mesh {
   return new THREE.Mesh(new THREE.TorusGeometry(radius, 1.3, 5, 24), new THREE.MeshBasicMaterial({ color: 0xffffff }));
 }
 
-export function buildSky(): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(4000, 16, 10);
+/** Vertical gradient from warm haze to blue, with a soft glow around the sun. */
+export function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(4000, 32, 16);
   const colors: number[] = [];
-  const top = new THREE.Color(0x4f86cc), horizon = new THREE.Color(0xe6dcc6);
+  const top = new THREE.Color(0x4f86cc), horizon = new THREE.Color(0xe6dcc6), glow = new THREE.Color(0xffe2b0);
   const c = new THREE.Color();
+  const v = new THREE.Vector3();
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {
     const t = Math.max(0, p.getY(i) / 4000);
     c.copy(horizon).lerp(top, Math.pow(t, 0.6));
+    const toSun = Math.max(0, v.fromBufferAttribute(p, i).normalize().dot(sunDir));
+    c.lerp(glow, 0.75 * Math.pow(toSun, 6));
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -331,13 +335,14 @@ export function buildSky(): THREE.Mesh {
 export function buildClouds(): THREE.Group {
   const g = new THREE.Group();
   const rnd = mulberry32(11);
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true, emissive: 0x777777 });
+  // Flat, soft-edged puffs: sunlit tops, warm grey undersides rather than a uniform glow.
+  const mat = new THREE.MeshLambertMaterial({ color: 0xf4eee2, emissive: 0x9a9288 });
   for (let i = 0; i < 26; i++) {
     const cloud = new THREE.Group();
     for (let k = 0; k < 4; k++) {
-      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(30 + rnd() * 30, 0), mat);
-      puff.position.set(k * 40 - 60, rnd() * 15, rnd() * 30);
-      puff.scale.y = 0.5;
+      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(30 + rnd() * 30, 1), mat);
+      puff.position.set(k * 40 - 60, rnd() * 6, rnd() * 30);
+      puff.scale.set(1.3, 0.28, 1);
       cloud.add(puff);
     }
     const a = rnd() * Math.PI * 2, r = 600 + rnd() * 1800;

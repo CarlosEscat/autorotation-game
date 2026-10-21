@@ -66,7 +66,7 @@ export class GameRenderer {
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.04;
 
-    this.sky = buildSky();
+    this.sky = buildSky(SUN_DIR);
     const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
