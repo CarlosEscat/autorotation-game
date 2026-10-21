@@ -19,12 +19,15 @@ export class GameRenderer {
   private heli: HelicopterModel;
   private beacon: THREE.Group;
   private beaconColumn: THREE.MeshBasicMaterial;
+  private padMarkers: THREE.Sprite[] = [];
   private markers: THREE.Group | null = null;
   private gates: THREE.Mesh[] = [];
   private sky: THREE.Mesh;
   private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
+  private tmp = new THREE.Vector3();
+  private tmp2 = new THREE.Vector3();
   private rotorAngle = 0;
   private tailAngle = 0;
   mode: CameraMode = 'cockpit';
@@ -41,7 +44,7 @@ export class GameRenderer {
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
     // Low, warm late-afternoon sun with a soft sky fill and warm haze.
-    this.scene.fog = new THREE.Fog(HAZE, 450, 2800);
+    this.scene.fog = new THREE.Fog(HAZE, 600, 3400);
     this.scene.background = new THREE.Color(HAZE);
     this.scene.add(new THREE.HemisphereLight(0xbcd4f0, 0x4f5a3c, 1.0));
     this.sun = new THREE.DirectionalLight(0xffdcb0, 2.4);
@@ -65,6 +68,9 @@ export class GameRenderer {
     const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
+    this.scene.traverse((o) => {
+      if (o instanceof THREE.Sprite && o.name === 'padMarker') this.padMarkers.push(o);
+    });
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon);
@@ -188,6 +194,13 @@ export class GameRenderer {
     const bd = Math.hypot(s.pos.x - this.beacon.position.x, s.pos.z - this.beacon.position.z);
     this.beaconColumn.opacity = 0.22 * THREE.MathUtils.smoothstep(bd, 40, 250);
     this.beaconColumn.visible = this.beaconColumn.opacity > 0.005;
+
+    // Small pads get a fixed-size ring at range; it fades out before the pad itself is easy to see.
+    for (const m of this.padMarkers) {
+      const d = m.getWorldPosition(this.tmp).distanceTo(this.camera.getWorldPosition(this.tmp2));
+      m.material.opacity = THREE.MathUtils.smoothstep(d, 250, 450);
+      m.visible = m.material.opacity > 0.01;
+    }
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
     this.renderer.render(this.scene, this.camera);

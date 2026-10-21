@@ -199,15 +199,16 @@ export function buildRunways(world: World): THREE.Group {
   return group;
 }
 
-/** Concrete deck on four legs standing in the lake, with an edge line, touchdown circle and H. */
+/** Concrete deck on four legs standing in the lake, with a yellow edge band, touchdown circle and H. */
 function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   const g = new THREE.Group();
   const mat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
   const hw = a.halfWidth, hl = a.halfLength;
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(0x5a5d61));
+  // Light deck and bold, wide markings so the pad still reads at range; size and collision are unchanged.
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(0x8e9294));
   slab.position.y = -0.5;
   g.add(slab);
-  const legMat = mat(0x8a8d90);
+  const legMat = mat(0x9a9c9c);
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 16, 6), legMat);
     leg.position.set(sx * (hw - 2), -9, sz * (hl - 2));
@@ -218,17 +219,44 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
     mesh.position.set(x, 0.03, z);
     g.add(mesh);
   };
-  for (const side of [-1, 1]) {
-    flat(new THREE.PlaneGeometry(hw * 2 - 1, 0.6), paint, 0, side * (hl - 0.8));
-    flat(new THREE.PlaneGeometry(0.6, hl * 2 - 1), paint, side * (hw - 0.8), 0);
-    flat(new THREE.PlaneGeometry(1.4, 9), paint, side * 3, 0); // H uprights
-  }
-  flat(new THREE.PlaneGeometry(4.6, 1.4), paint); // H crossbar
   const yellow = new THREE.MeshLambertMaterial({ color: 0xffd23a, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
-  flat(new THREE.RingGeometry(7.6, 8.4, 32), yellow);
+  for (const side of [-1, 1]) {
+    flat(new THREE.PlaneGeometry(hw * 2, 1.4), yellow, 0, side * (hl - 0.7)); // edge band
+    flat(new THREE.PlaneGeometry(1.4, hl * 2 - 2.8), yellow, side * (hw - 0.7), 0);
+    flat(new THREE.PlaneGeometry(2.0, 11), paint, side * 3.6, 0); // H uprights
+  }
+  flat(new THREE.PlaneGeometry(5.2, 2.0), paint); // H crossbar
+  flat(new THREE.RingGeometry(7.4, 8.6, 32), yellow);
+  g.add(buildPadMarker());
   g.position.set(a.cx, a.elevation, a.cz);
   g.rotation.y = a.rotation;
   return g;
+}
+
+/**
+ * Constant screen-size ring over a small pad so it can be found from far away. Named
+ * 'padMarker'; the renderer fades it in with distance and hides it up close.
+ */
+function buildPadMarker(): THREE.Sprite {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d')!;
+  ctx.lineWidth = 9;
+  ctx.strokeStyle = '#ffd23a';
+  ctx.beginPath();
+  ctx.arc(32, 32, 24, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(32, 32, 7, 0, Math.PI * 2);
+  ctx.fill();
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, fog: false, transparent: true, depthWrite: false }));
+  sprite.name = 'padMarker';
+  sprite.scale.set(0.028, 0.028, 1);
+  sprite.position.y = 3;
+  return sprite;
 }
 
 /** Corner markers and a windsock for each landing area. */
