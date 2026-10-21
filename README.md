@@ -115,7 +115,7 @@ The model is a simplified, physically motivated autorotation model, tuned for ar
   - A flare tilts the disk against the airflow, so thrust and NR rise and the sink is arrested. Holding it too long or too high balloons the aircraft, and you run out of energy.
   - Raising the collective near the ground converts rotor kinetic energy into a brief cushion. Do it too early or for too long and NR drains.
 - **Low NR:** below about 78 % a progressive "low-RPM stall" factor reduces thrust and increases drag (this stands in for loss of centrifugal stiffening and retreating-blade stall). Below 40 % the flight ends.
-- **Engine and governor:** the engine holds 100 % NR up to 190 kW. On failure, power spools down over 0.6 s and a decaying nose-left yaw rate is applied.
+- **Engine and governor:** the engine holds 100 % NR up to 190 kW. While it runs, two game simplifications keep powered flight sane: the collective stops where the rotor would need more than 97 % of that power (like flying to the torque limit, so pulling harder never droops the rotor), and the governor may absorb up to 60 kW to hold NR in a powered descent with the collective down. Neither applies after a failure. On failure, power spools down over 0.6 s and a decaying nose-left yaw rate is applied.
 - **Fuselage:** body-axis flat-plate drag. Ground effect follows Cheeseman–Bennett (capped).
 - **Attitude:** an arcade attitude-command layer with a first-order lag. Control authority scales with NR². Yaw comes from pedals plus tail-fin weathervaning into the relative wind.
 - **Structural limits:** overspeed above 115 % and a sustained low-G push-over (mast-bumping risk) accumulate damage. A sustained low-G push of more than ~1.6 s is fatal.

@@ -88,21 +88,35 @@ export function rotorAero(
 
 /** Advance the helicopter by one fixed step. Mutates `s`. */
 export function stepFlight(s: HelicopterState, c: ControlInputs, env: FlightEnvironment, dt = SIM_DT): void {
-  s.collective = clamp(c.collective, 0, 1);
-
   const axes = bodyAxes(s.yaw, s.pitch, s.roll);
   const vAir = sub(s.vel, env.wind);
   const ground = env.groundHeight(s.pos.x, s.pos.z);
   const hubAgl = s.pos.y + A.hubHeight - ground;
 
-  const rotor = rotorAero(s.omega, s.collective, vAir, axes, s.inducedVel, hubAgl);
+  // With the engine running, pulling past the power available would only droop the rotor.
+  // Like a pilot flying to the torque limit, the collective stops where the engine runs out.
+  s.collective = clamp(c.collective, 0, 1);
+  let rotor = rotorAero(s.omega, s.collective, vAir, axes, s.inducedVel, hubAgl);
+  const powerCap = A.engineMaxPower * A.powerLimitMargin;
+  if (s.engineRunning && rotor.powerRequired > powerCap) {
+    let lo = 0, hi = s.collective;
+    for (let i = 0; i < 12; i++) {
+      const mid = (lo + hi) / 2;
+      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl).powerRequired > powerCap) hi = mid;
+      else lo = mid;
+    }
+    s.collective = lo;
+    rotor = rotorAero(s.omega, lo, vAir, axes, s.inducedVel, hubAgl);
+  }
   s.inducedVel += (rotor.inducedTarget - s.inducedVel) * Math.min(1, dt / 0.12);
   s.thrust = rotor.thrust;
 
   // --- Engine and governor -------------------------------------------------
   if (!s.engineRunning) s.engineAvail = Math.max(0, s.engineAvail - dt / A.engineSpoolDown);
   const governed = rotor.powerRequired + A.governorGain * A.rotorInertia * s.omega * (A.rotorOmega0 - s.omega);
-  s.enginePower = clamp(governed, 0, A.engineMaxPower) * s.engineAvail;
+  // Running, the governor can also hold NR down in a powered descent; after a failure nothing can.
+  const brake = s.engineRunning ? A.governorBrakePower : 0;
+  s.enginePower = clamp(governed, -brake, A.engineMaxPower) * s.engineAvail;
 
   // --- Rotor speed: I Ω dΩ/dt = P_engine − P_required ----------------------
   s.omega += ((s.enginePower - rotor.powerRequired) / (A.rotorInertia * Math.max(s.omega, 5))) * dt;

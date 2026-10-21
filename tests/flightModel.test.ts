@@ -93,3 +93,46 @@ describe('flight model cause and effect', () => {
     expect(b.omega).toBeCloseTo(a.omega, 6);
   });
 });
+
+describe('engine running: power limit and governor', () => {
+  it('full collective climbs at the power limit without drooping the rotor', () => {
+    const s = cruise();
+    glide(s, 1, 33, 60);
+    expect(s.rpmPct).toBeGreaterThan(97);
+    expect(s.verticalSpeed).toBeGreaterThan(5);
+    expect(s.enginePower).toBeLessThanOrEqual(190_000);
+  });
+
+  it('more collective never means less climb', () => {
+    const climb = (coll: number) => {
+      const s = cruise();
+      glide(s, coll, 33, 20);
+      return s.verticalSpeed;
+    };
+    expect(climb(1)).toBeGreaterThanOrEqual(climb(0.75) - 0.2);
+  });
+
+  it('the governor holds the rotor in the green in a powered descent with the collective down', () => {
+    const s = cruise();
+    let maxRpm = 0;
+    const c = { collective: 0, cyclicPitch: 0, cyclicRoll: 0, pedal: 0 };
+    for (let t = 0; t < 60; t += SIM_DT) {
+      s.pitchCmd = -0.05;
+      stepFlight(s, c, env);
+      maxRpm = Math.max(maxRpm, s.rpmPct);
+    }
+    expect(s.verticalSpeed).toBeLessThan(-5);
+    expect(maxRpm).toBeLessThanOrEqual(108);
+  });
+
+  it('after a failure the rotor still overspeeds with the collective down (no governor)', () => {
+    const s = cruise();
+    failEngine(s);
+    const c = { collective: 0, cyclicPitch: 0, cyclicRoll: 0, pedal: 0 };
+    for (let t = 0; t < 30; t += SIM_DT) {
+      s.pitchCmd = -0.05;
+      stepFlight(s, c, env);
+    }
+    expect(s.rpmPct).toBeGreaterThan(112);
+  });
+});

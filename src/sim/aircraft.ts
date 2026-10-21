@@ -31,6 +31,9 @@ export const AIRCRAFT = {
   engineMaxPower: 190_000, // W
   engineSpoolDown: 0.6, // s for power to decay after failure
   governorGain: 3.0, // 1/s
+  // Game simplifications while the engine runs (none apply after a failure):
+  powerLimitMargin: 0.97, // collective is held where the rotor needs at most this share of max power
+  governorBrakePower: 60_000, // W the governor may take out to keep NR down in a powered descent
 
   // Attitude response (arcade "attitude command" layer on top of the physics)
   pitchRateMax: 20 * DEG, // rad/s of commanded attitude change at full cyclic

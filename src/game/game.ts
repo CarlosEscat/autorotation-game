@@ -248,6 +248,8 @@ export class Game {
       for (let n = this.stepper.advance(dt); n > 0; n--) {
         this.input.update(this.stepper.dt);
         session.step(this.input.controls, this.stepper.dt);
+        // The lever stops where the engine runs out of power, so lowering it answers at once.
+        if (session.state.engineRunning) this.input.controls.collective = Math.min(this.input.controls.collective, session.state.collective);
         const l = this.level;
         if (l && l.endIn === null) {
           l.status = l.objective.update(this.levelContext(), this.stepper.dt);
