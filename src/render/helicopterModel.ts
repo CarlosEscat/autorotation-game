@@ -49,8 +49,6 @@ export function buildHelicopter(): HelicopterModel {
   canopy.position.copy(cabin.position).add(V(0, 0.04, 0));
   const belly = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 2.0), dark);
   belly.position.set(0, -0.62, -0.2);
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.08, 1.9), white);
-  stripe.position.set(0, -0.12, 0.05);
   // Transmission/engine cowling behind the mast, with a fairing around the mast foot.
   const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.5, 1.3), white);
   cowl.position.set(0, 1.05, 0.65);
@@ -75,7 +73,7 @@ export function buildHelicopter(): HelicopterModel {
   ventral.rotation.x = 0.45;
   const stab = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.34), red);
   stab.position.set(0, 0.55, A.tailBoomLength - 0.7);
-  exterior.add(cabin, canopy, belly, stripe, cowl, fairing, exhaust, mast, hub, boom, fin, ventral, stab);
+  exterior.add(cabin, canopy, belly, cowl, fairing, exhaust, mast, hub, boom, fin, ventral, stab);
   for (const sx of [-1, 1]) {
     const y = -A.skidHeight;
     exterior.add(bar(V(sx * 1.05, y, -1.75), V(sx * 1.05, y, 1.45), 0.08, dark)); // skid
@@ -114,12 +112,13 @@ export function buildHelicopter(): HelicopterModel {
   rotorDisc.position.set(0, A.hubHeight, 0);
 
   // --- Cockpit interior (pilot in the right seat) -----------------------------
-  const frame = mat(0x50505a), panelMat = mat(0x2c2c33), gaugeMat = mat(0x0e0e10), rim = mat(0xbfbfbf);
+  // Light warm greys so the cockpit frames the view instead of blocking it.
+  const frame = mat(0x9a948a, { emissive: 0x2a2620 }), panelMat = mat(0x8f8a80), gaugeMat = mat(0x262a2e), rim = mat(0xe8e2d4);
   const panel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.34, 0.08), panelMat);
   panel.position.set(0.12, -0.14, -1.6);
   panel.rotation.x = -0.45;
-  const glare = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.04, 0.26), mat(0x1d1d22));
-  glare.position.set(0.12, 0.03, -1.58);
+  const glare = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.03, 0.18), mat(0xa49e92));
+  glare.position.set(0.12, 0.0, -1.62);
   panel.add(...[-0.5, -0.25, 0, 0.25, 0.5].flatMap((x, i) => {
     const g = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.02, 10).rotateX(Math.PI / 2), gaugeMat);
     g.position.set(x, i % 2 ? 0.05 : -0.04, 0.05);
@@ -130,14 +129,14 @@ export function buildHelicopter(): HelicopterModel {
   const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.45), panelMat);
   pedestal.position.set(0, -0.55, -1.35);
   cockpit.add(panel, glare, pedestal);
+  // The eye is under a metre from the frame, so the pillars sit wide and thin and end
+  // above the bottom corners, where the HUD instruments sit. The lower frame, front roof
+  // and centre windshield bars are left out.
   for (const sx of [-1, 1]) {
-    cockpit.add(bar(V(sx * 0.92, 0.02, -1.75), V(sx * 0.7, 1.3, -0.85), 0.045, frame)); // A-pillar
-    cockpit.add(bar(V(sx * 0.92, 0.02, -1.75), V(sx * 0.98, -0.8, -1.4), 0.045, frame)); // lower front frame
-    cockpit.add(bar(V(sx * 0.98, -0.75, -0.15), V(sx * 0.8, 1.3, -0.15), 0.08, frame)); // door post
+    cockpit.add(bar(V(sx * 1.3, 0.35, -1.55), V(sx * 0.95, 1.3, -0.8), 0.03, frame)); // A-pillar
+    cockpit.add(bar(V(sx * 1.2, -0.75, -0.15), V(sx * 0.95, 1.3, -0.15), 0.05, frame)); // door post
   }
-  cockpit.add(bar(V(0, 0.05, -1.75), V(0, 1.32, -0.8), 0.035, frame)); // centre windshield bar
-  cockpit.add(bar(V(-0.66, 1.3, -0.85), V(0.66, 1.3, -0.85), 0.07, frame)); // roof edge
-  cockpit.add(bar(V(-0.8, 1.3, -0.15), V(0.8, 1.3, -0.15), 0.07, frame));
+  cockpit.add(bar(V(-0.95, 1.3, -0.15), V(0.95, 1.3, -0.15), 0.05, frame)); // rear roof edge
 
   const cyclic = new THREE.Group();
   cyclic.position.set(0.36, -0.7, -0.95);
