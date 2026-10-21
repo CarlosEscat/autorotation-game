@@ -113,7 +113,7 @@ export function buildHelicopter(): HelicopterModel {
 
   // --- Cockpit interior (pilot in the right seat) -----------------------------
   // Light warm greys so the cockpit frames the view instead of blocking it.
-  const frame = mat(0x9a948a, { emissive: 0x2a2620 }), panelMat = mat(0x8f8a80), gaugeMat = mat(0x262a2e), rim = mat(0xe8e2d4);
+  const panelMat = mat(0x8f8a80), gaugeMat = mat(0x262a2e), rim = mat(0xe8e2d4);
   const panel = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.34, 0.08), panelMat);
   panel.position.set(0.12, -0.14, -1.6);
   panel.rotation.x = -0.45;
@@ -129,14 +129,8 @@ export function buildHelicopter(): HelicopterModel {
   const pedestal = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.5, 0.45), panelMat);
   pedestal.position.set(0, -0.55, -1.35);
   cockpit.add(panel, glare, pedestal);
-  // The eye is under a metre from the frame, so the pillars sit wide and thin and end
-  // above the bottom corners, where the HUD instruments sit. The lower frame, front roof
-  // and centre windshield bars are left out.
-  for (const sx of [-1, 1]) {
-    cockpit.add(bar(V(sx * 1.3, 0.35, -1.55), V(sx * 0.95, 1.3, -0.8), 0.03, frame)); // A-pillar
-    cockpit.add(bar(V(sx * 1.2, -0.75, -0.15), V(sx * 0.95, 1.3, -0.15), 0.05, frame)); // door post
-  }
-  cockpit.add(bar(V(-0.95, 1.3, -0.15), V(0.95, 1.3, -0.15), 0.05, frame)); // rear roof edge
+  // No canopy frame: with the roof not modelled, pillars under a metre from the eye
+  // only dead-end in the view, so the windscreen is left open.
 
   const cyclic = new THREE.Group();
   cyclic.position.set(0.36, -0.7, -0.95);
