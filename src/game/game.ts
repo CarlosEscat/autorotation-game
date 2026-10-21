@@ -22,6 +22,7 @@ interface Saved {
   attempts: number;
   /** Best stars per training level id. */
   training: Record<string, number>;
+  muted: boolean;
 }
 
 interface ActiveLevel {
@@ -34,7 +35,7 @@ interface ActiveLevel {
 }
 
 function load(): Saved {
-  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0, training: {} };
+  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0, training: {}, muted: false };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
@@ -93,12 +94,14 @@ export class Game {
       onRestart: () => this.restart(),
       onMenu: () => this.toMenu(),
       onTraining: () => this.toTraining(),
+      onMute: () => this.toggleMute(),
       onBriefing: (i) => this.toBriefing(i),
       onStartLevel: (i) => this.startLevel(i),
       onNextLevel: () => this.toBriefing((this.level?.index ?? -1) + 1),
     });
     attachKeyboard(this.input);
     this.bindActions();
+    this.applyMuted();
 
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     this.touch.setVisible(false);
@@ -141,7 +144,20 @@ export class Game {
       if (l && l.status.state === 'passed' && l.index + 1 < LEVELS.length) this.toBriefing(l.index + 1);
       else this.restart();
     });
-    i.on('mute', () => this.audio.setMuted(!this.audio.muted));
+    i.on('mute', () => this.toggleMute());
+  }
+
+  private toggleMute() {
+    this.saved.muted = !this.saved.muted;
+    save(this.saved);
+    this.applyMuted();
+    if (this.state === 'flying') this.hud.flash(this.saved.muted ? 'SOUND OFF' : 'SOUND ON', 'info', 1);
+  }
+
+  private applyMuted() {
+    this.audio.setMuted(this.saved.muted);
+    this.screens.setMuted(this.saved.muted);
+    this.touch.setMuted(this.saved.muted);
   }
 
   private startFlight(settings: Settings) {

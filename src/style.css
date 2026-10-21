@@ -109,6 +109,7 @@ html, body {
 .tc-pedals { position: absolute; left: calc(108px + var(--safe-l)); bottom: calc(18px + var(--safe-b)); display: flex; gap: 8px; }
 .tc-actions { position: absolute; right: calc(128px + var(--safe-r)); top: calc(12px + var(--safe-t)); display: flex; flex-direction: column; gap: 6px; }
 .tc-btn { min-width: 52px; height: 48px; border-radius: 10px; border: 2px solid rgba(255, 255, 255, 0.4); background: rgba(10, 12, 18, 0.55); color: var(--ink); font: 800 14px var(--font); touch-action: none; }
+.tc-btn.off { color: var(--amber); border-color: var(--amber); }
 .tc-btn:active { background: rgba(255, 210, 58, 0.5); }
 
 /* On touch layouts, move flight readouts out of the thumbs' way. */

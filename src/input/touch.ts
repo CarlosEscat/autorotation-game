@@ -25,6 +25,7 @@ export class TouchControls {
       <div class="tc-actions">
         <button class="tc-btn" data-action="cycleTarget">TGT</button>
         <button class="tc-btn" data-action="camera">CAM</button>
+        <button class="tc-btn" data-action="mute" aria-label="Sound off">SND</button>
         <button class="tc-btn" data-action="pause">II</button>
       </div>`;
     parent.appendChild(this.root);
@@ -94,6 +95,13 @@ export class TouchControls {
   sync(collective: number) {
     this.collectiveHandle.style.bottom = `calc(${collective * 100}% - 14px)`;
     (this.collectiveTrack.firstElementChild as HTMLElement).style.height = `${collective * 100}%`;
+  }
+
+  setMuted(m: boolean) {
+    const b = this.root.querySelector<HTMLElement>('[data-action="mute"]')!;
+    b.textContent = m ? 'MUTE' : 'SND';
+    b.classList.toggle('off', m);
+    b.setAttribute('aria-label', m ? 'Sound on' : 'Sound off');
   }
 
   setVisible(v: boolean) {

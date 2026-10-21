@@ -10,7 +10,7 @@ export const KEY_BINDINGS: { keys: string; action: string }[] = [
   { keys: 'C', action: 'Cockpit / chase camera' },
   { keys: 'Mouse drag', action: 'Look around' },
   { keys: 'P / Esc', action: 'Pause' },
-  { keys: 'M', action: 'Mute' },
+  { keys: 'M', action: 'Sound on / off' },
 ];
 
 export function attachKeyboard(input: InputManager, target: Window = window) {

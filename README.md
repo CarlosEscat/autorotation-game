@@ -39,7 +39,7 @@ Build and serve the app over HTTPS (or `localhost`). Supported browsers then off
 | **C** | Cockpit / chase camera |
 | **Mouse drag** | Look around |
 | **P / Esc** | Pause |
-| **M** | Mute |
+| **M** | Sound on / off (also a button in the menu, the pause menu and the touch controls; remembered) |
 | **Enter / R** | Fly again from the results screen |
 
 **Touch:** the left thumb works the **COLL** lever (absolute position: slide up and down). The right thumb works the **CYCLIC** stick. ◀ ▶ are pedals, and TGT / CAM / II are target, camera and pause. Drag on the view to look around. Each control tracks its own finger, so you can use several at once. Page scrolling and zooming are blocked during play. Landscape is preferred: the game asks for an orientation lock where the browser allows it, and it lays itself out for portrait otherwise.

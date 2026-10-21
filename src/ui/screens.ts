@@ -47,6 +47,7 @@ export interface MenuHandlers {
   onFreeFlight(settings: Settings): void;
   onTutorial(settings: Settings): void;
   onTraining(): void;
+  onMute(): void;
   onBriefing(index: number): void;
   onStartLevel(index: number): void;
   onNextLevel(): void;
@@ -78,6 +79,7 @@ export class Screens {
     this.pause.innerHTML = `<div class="panel small"><h2>PAUSED</h2>
       <button class="btn primary" data-a="resume">Resume</button>
       <button class="btn" data-a="restart">Restart flight</button>
+      <button class="btn" data-a="mute">Sound: on</button>
       <button class="btn" data-a="menu">Main menu</button></div>`;
     this.bindButtons(this.pause);
     this.bindButtons(this.results);
@@ -99,6 +101,7 @@ export class Screens {
       else if (a === 'restart') this.handlers.onRestart();
       else if (a === 'menu') this.handlers.onMenu();
       else if (a === 'training') this.handlers.onTraining();
+      else if (a === 'mute') this.handlers.onMute();
       else if (a === 'brief') this.handlers.onBriefing(Number(el!.dataset.i));
       else if (a === 'level') this.handlers.onStartLevel(Number(el!.dataset.i));
       else if (a === 'next') this.handlers.onNextLevel();
@@ -123,6 +126,7 @@ export class Screens {
         <button class="btn" data-a="free">Fly around</button>
         <button class="btn" data-a="training">Training</button>
         <button class="btn" data-a="howto">How to fly</button>
+        <button class="btn" data-a="mute">Sound: on</button>
       </div>
       <div class="best" data-k="best"></div>
       <p class="disclaimer">An educational arcade prototype. Not a flight-training device, and not a source of approved emergency procedures.</p>
@@ -160,6 +164,11 @@ export class Screens {
       hints: q<HTMLInputElement>('hints').checked,
     };
     return this.settings;
+  }
+
+  /** Label every sound toggle with the current state. */
+  setMuted(m: boolean) {
+    for (const b of document.querySelectorAll<HTMLElement>('.screen [data-a="mute"]')) b.textContent = m ? 'Sound: off' : 'Sound: on';
   }
 
   setBest(best: number | null, attempts: number) {
