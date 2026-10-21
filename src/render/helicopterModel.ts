@@ -35,34 +35,62 @@ export function buildHelicopter(): HelicopterModel {
   const cockpit = new THREE.Group();
 
   // --- Exterior -------------------------------------------------------------
-  const red = mat(0xd23a2a), white = mat(0xeeeeee), dark = mat(0x333338), glass = mat(0x88b8d8, { transparent: true, opacity: 0.55 });
-  const cabin = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), red);
-  cabin.scale.set(1.0, 0.95, 1.5);
-  cabin.position.set(0, 0.2, -0.3);
-  const canopy = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), glass);
-  canopy.scale.set(0.95, 0.9, 1.1);
-  canopy.position.set(0, 0.35, -0.9);
-  canopy.rotation.x = -0.9;
-  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.2, A.tailBoomLength - 0.8, 6).rotateX(Math.PI / 2), white);
-  boom.position.set(0, 0.45, (A.tailBoomLength + 0.8) / 2);
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.2, 0.6), red);
-  fin.position.set(0, 0.9, A.tailBoomLength - 0.1);
-  fin.rotation.x = -0.35;
-  const stab = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.05, 0.35), red);
-  stab.position.set(0, 0.4, A.tailBoomLength - 0.6);
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 1.0, 5), dark);
-  mast.position.set(0, A.hubHeight - 0.5, 0);
-  const engine = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.6, 1.0), white);
-  engine.position.set(0, 1.1, 0.9);
-  exterior.add(cabin, canopy, boom, fin, stab, mast, engine);
+  const red = mat(0xc8432f), white = mat(0xf1ece0), dark = mat(0x3a3a40), glass = mat(0x7da6bd, { transparent: true, opacity: 0.85 });
+  // Cabin: a lathed teardrop along Z, rounded nose forward (-Z), tapering into the tail cone.
+  const profile = [[0, -1.95], [0.42, -1.82], [0.74, -1.45], [0.92, -0.85], [0.96, -0.15], [0.86, 0.5], [0.6, 0.95], [0.3, 1.3], [0, 1.4]];
+  const cabinGeo = new THREE.LatheGeometry(profile.map(([r, z]) => new THREE.Vector2(r, z)), 10).rotateX(Math.PI / 2);
+  const cabin = new THREE.Mesh(cabinGeo, red);
+  cabin.scale.set(0.98, 0.92, 1);
+  cabin.position.set(0, 0.2, -0.15);
+  // Tinted canopy over the upper front of the cabin, following the same profile.
+  const canopyGeo = new THREE.LatheGeometry(profile.slice(0, 6).map(([r, z]) => new THREE.Vector2(r * 1.03, z * 1.01)), 10, Math.PI - 1.25, 2.5).rotateX(Math.PI / 2);
+  const canopy = new THREE.Mesh(canopyGeo, glass);
+  canopy.scale.copy(cabin.scale);
+  canopy.position.copy(cabin.position).add(V(0, 0.04, 0));
+  const belly = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 2.0), dark);
+  belly.position.set(0, -0.62, -0.2);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.08, 1.9), white);
+  stripe.position.set(0, -0.12, 0.05);
+  // Transmission/engine cowling behind the mast, with a fairing around the mast foot.
+  const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.5, 1.3), white);
+  cowl.position.set(0, 1.05, 0.65);
+  const fairing = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.34, 0.35, 6), white);
+  fairing.position.set(0, 1.4, 0.05);
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.4, 6).rotateX(Math.PI / 2), dark);
+  exhaust.position.set(0.25, 1.0, 1.4);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.9, 6), dark);
+  mast.position.set(0, A.hubHeight - 0.45, 0);
+  const hub = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.3), dark);
+  hub.position.set(0, A.hubHeight, 0);
+  // Tail boom tapering from the cabin to the tail rotor, with fins.
+  const boomStart = 1.05, boomLen = A.tailBoomLength - boomStart + 0.15;
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.22, boomLen, 6).rotateX(Math.PI / 2), white);
+  boom.position.set(0, 0.6, boomStart + boomLen / 2);
+  boom.rotation.x = -0.03;
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.1, 0.55), red);
+  fin.position.set(0, 1.05, A.tailBoomLength - 0.05);
+  fin.rotation.x = -0.45;
+  const ventral = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 0.4), red);
+  ventral.position.set(0, 0.25, A.tailBoomLength - 0.05);
+  ventral.rotation.x = 0.45;
+  const stab = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.34), red);
+  stab.position.set(0, 0.55, A.tailBoomLength - 0.7);
+  exterior.add(cabin, canopy, belly, stripe, cowl, fairing, exhaust, mast, hub, boom, fin, ventral, stab);
   for (const sx of [-1, 1]) {
-    exterior.add(bar(V(sx * 1.05, -A.skidHeight, -1.9), V(sx * 1.05, -A.skidHeight, 1.6), 0.09, dark));
-    exterior.add(bar(V(sx * 1.05, -A.skidHeight, -1.9), V(sx * 1.05, -A.skidHeight + 0.25, -2.2), 0.09, dark));
-    for (const z of [-0.9, 0.8]) exterior.add(bar(V(sx * 1.05, -A.skidHeight, z), V(sx * 0.5, -0.55, z), 0.08, dark));
+    const y = -A.skidHeight;
+    exterior.add(bar(V(sx * 1.05, y, -1.75), V(sx * 1.05, y, 1.45), 0.08, dark)); // skid
+    exterior.add(bar(V(sx * 1.05, y, -1.75), V(sx * 1.05, y + 0.28, -2.1), 0.08, dark)); // upturned toe
+    for (const z of [-0.95, 0.75]) {
+      exterior.add(bar(V(sx * 1.05, y, z), V(sx * 0.82, -0.62, z), 0.07, dark)); // cross-tube leg
+      exterior.add(bar(V(sx * 0.82, -0.62, z), V(0, -0.66, z), 0.07, dark));
+    }
+    const step = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.4), dark);
+    step.position.set(sx * 0.9, -0.85, -0.95);
+    exterior.add(step);
   }
 
   const tailRotor = new THREE.Group();
-  tailRotor.position.set(0.2, 0.75, A.tailBoomLength);
+  tailRotor.position.set(0.17, 0.72, A.tailBoomLength);
   for (const a of [0, Math.PI / 2]) {
     const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.2, 0.12), white);
     b.rotation.x = a;
@@ -80,8 +108,8 @@ export function buildHelicopter(): HelicopterModel {
     rotor.add(blade);
   }
   const rotorDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(A.rotorRadius, 20).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0x202024, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.CircleGeometry(A.rotorRadius, 32).rotateX(-Math.PI / 2),
+    new THREE.MeshBasicMaterial({ color: 0x3a3a42, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false }),
   );
   rotorDisc.position.set(0, A.hubHeight, 0);
 

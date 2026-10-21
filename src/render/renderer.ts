@@ -144,14 +144,18 @@ export class GameRenderer {
     this.tailAngle += s.omega * 5.5 * frameDt;
     h.rotor.rotation.y = this.rotorAngle;
     h.tailRotor.rotation.x = this.tailAngle;
-    const spin = Math.min(1, s.omega / A.rotorOmega0);
-    (h.rotorDisc.material as THREE.MeshBasicMaterial).opacity = 0.05 + 0.16 * spin;
 
     h.cyclic.rotation.x = c.cyclicPitch * 0.28;
     h.cyclic.rotation.z = -c.cyclicRoll * 0.28;
     h.collective.rotation.x = c.collective * 0.4 - 0.1;
 
     const cockpit = this.mode === 'cockpit';
+    // Per-frame blade steps strobe at speed, so blades fade into a soft disc as NR builds.
+    // Blades are only visible while the rotor is slow, which doubles as a low-NR cue.
+    const spin = Math.min(1, s.omega / A.rotorOmega0);
+    const blur = THREE.MathUtils.smoothstep(spin, 0.4, 0.85);
+    h.rotor.visible = blur < 0.7;
+    (h.rotorDisc.material as THREE.MeshBasicMaterial).opacity = (cockpit ? 0.06 : 0.14) * blur + 0.03;
     h.cockpit.visible = cockpit;
     h.exterior.visible = !cockpit;
     h.shadowProxy.visible = cockpit && this.shadows;
