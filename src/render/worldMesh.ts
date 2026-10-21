@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LAKE, LandingArea, Surface, World } from '../world/world';
 import { mulberry32, valueNoise } from '../world/rng';
 
@@ -49,9 +50,12 @@ export function buildTerrain(world: World): THREE.Mesh {
       const area = surface === 'field' ? world.areaAt(mx, mz) : undefined;
       const t = area ? (mowStripe(area, mx, mz) ? 1 : 0) : THREE.MathUtils.smoothstep(valueNoise(mx / 30, mz / 30, 13), 0.2, 0.8);
       color.setHex(c0).lerp(tmpColor.setHex(c1), t);
-      // Triangles straddling the area edge go halfway to grass, softening the sawtooth outline.
-      const inside = [[ax, az], [bx, bz], [cx, cz]].filter(([x, z]) => world.surfaceAt(x, z) === surface).length;
-      if (inside < 3) color.lerp(grass, 0.5);
+      // On the wide field and rough areas, triangles straddling the edge go halfway to grass,
+      // softening the sawtooth outline. The narrow strip keeps hard edges so it stays readable.
+      if (surface === 'field' || surface === 'rough') {
+        const inside = [[ax, az], [bx, bz], [cx, cz]].filter(([x, z]) => world.surfaceAt(x, z) === surface).length;
+        if (inside < 3) color.lerp(grass, 0.5);
+      }
     }
     if (ay < world.waterLevel + 1.5 && Math.hypot(mx - LAKE.x, mz - LAKE.z) < LAKE.r * 1.2) color.copy(SAND);
     color.multiplyScalar(0.98 + rnd() * 0.04);
@@ -111,9 +115,13 @@ export function buildObstacles(world: World): THREE.Group {
   const rnd = mulberry32(7);
 
   const trunkGeo = new THREE.CylinderGeometry(0.06, 0.09, 1, 5).translate(0, 0.5, 0);
-  const pineGeo = new THREE.ConeGeometry(0.25, 0.8, 6).translate(0, 0.6, 0);
+  // Two stacked cones give pines a chunkier silhouette; same overall height as before.
+  const pineGeo = mergeGeometries([
+    new THREE.ConeGeometry(0.27, 0.55, 6).translate(0, 0.525, 0),
+    new THREE.ConeGeometry(0.19, 0.45, 6).translate(0, 0.775, 0),
+  ]);
   const roundGeo = new THREE.IcosahedronGeometry(0.3, 0).translate(0, 0.62, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x6b4a2b, flatShading: true }), trees.length);
+  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x6b4f37, flatShading: true }), trees.length);
   const pines = trees.filter((t) => t.variant === 0);
   const rounds = trees.filter((t) => t.variant === 1);
   const pineMesh = new THREE.InstancedMesh(pineGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), pines.length);
@@ -129,10 +137,10 @@ export function buildObstacles(world: World): THREE.Group {
       sv.set(t.height, t.height, t.height);
       m4.compose(pv.set(t.x, t.base - 0.3, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
       mesh.setMatrixAt(i, m4);
-      mesh.setColorAt(i, tint.setHex(base).multiplyScalar(0.8 + rnd() * 0.35));
+      mesh.setColorAt(i, tint.setHex(base).multiplyScalar(0.88 + rnd() * 0.2));
     });
-  fill(pines, pineMesh, 0x2f6b34);
-  fill(rounds, roundMesh, 0x4d8a2e);
+  fill(pines, pineMesh, 0x2e6146);
+  fill(rounds, roundMesh, 0x5f8d3c);
   group.add(trunks, pineMesh, roundMesh);
 
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
@@ -141,17 +149,17 @@ export function buildObstacles(world: World): THREE.Group {
     sv.set(r.radius, r.height * 0.8, r.radius * 0.9);
     m4.compose(pv.set(r.x, r.base + r.height * 0.25, r.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
     rockMesh.setMatrixAt(i, m4);
-    rockMesh.setColorAt(i, tint.setHex(0x8a8580).multiplyScalar(0.8 + rnd() * 0.3));
+    rockMesh.setColorAt(i, tint.setHex(0x978f84).multiplyScalar(0.86 + rnd() * 0.2));
   });
   group.add(rockMesh);
 
   for (const b of world.obstacles.filter((o) => o.kind === 'building')) {
     const house = new THREE.Group();
-    const walls = new THREE.Mesh(new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!), new THREE.MeshLambertMaterial({ color: b.w! > 12 ? 0xa33a2c : 0xd9cfb4, flatShading: true }));
+    const walls = new THREE.Mesh(new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!), new THREE.MeshLambertMaterial({ color: b.w! > 12 ? 0xa94a36 : 0xe2d6bb, flatShading: true }));
     walls.position.y = (b.height * 0.65) / 2;
     const roofGeo = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
     roofGeo.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75);
-    const roof = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: 0x4a4a52, flatShading: true }));
+    const roof = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: 0x5b5652, flatShading: true }));
     roof.position.y = b.height * 0.65 + (b.height * 0.35) / 2;
     house.add(walls, roof);
     house.position.set(b.x, b.base, b.z);
@@ -173,11 +181,11 @@ function buildTower(x: number, base: number, z: number, height: number): THREE.G
     return m;
   };
   const cab = height - 7;
-  box(11, 4, 8, 0, 0xcfc8b6).position.x = 5; // ground-floor office
-  box(4, cab, 4, 0, 0xd9d4c5); // shaft
-  box(7.6, 0.8, 7.6, cab, 0xf0f0f0);
-  box(7, 3.6, 7, cab + 0.8, 0x2c4a63); // glass
-  box(7.8, 0.8, 7.8, cab + 4.4, 0xf0f0f0); // roof
+  box(11, 4, 8, 0, 0xd2c9b4).position.x = 5; // ground-floor office
+  box(4, cab, 4, 0, 0xddd5c2); // shaft
+  box(7.6, 0.8, 7.6, cab, 0xeeeae0);
+  box(7, 3.6, 7, cab + 0.8, 0x3b5a6e); // glass
+  box(7.8, 0.8, 7.8, cab + 4.4, 0xeeeae0); // roof
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 4), mat(0xdddddd));
   mast.position.y = cab + 6.1;
   const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
@@ -190,8 +198,8 @@ function buildTower(x: number, base: number, z: number, height: number): THREE.G
 /** Asphalt and white markings over each paved area: edges, centreline, thresholds, aiming points. */
 export function buildRunways(world: World): THREE.Group {
   const group = new THREE.Group();
-  const asphalt = new THREE.MeshLambertMaterial({ color: 0x4b4d50, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const paint = new THREE.MeshLambertMaterial({ color: 0xf2f2ee, flatShading: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const asphalt = new THREE.MeshLambertMaterial({ color: 0x54534f, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const paint = new THREE.MeshLambertMaterial({ color: 0xf0ebdf, flatShading: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
     const hw = a.halfWidth, hl = a.halfLength;
@@ -279,8 +287,8 @@ function buildPadMarker(): THREE.Sprite {
 /** Corner markers and a windsock for each landing area. */
 export function buildAreaMarkers(world: World, windFromDeg: number, windKt: number): THREE.Group {
   const group = new THREE.Group();
-  const markerMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
-  const sockMat = new THREE.MeshLambertMaterial({ color: 0xff6a1a, flatShading: true });
+  const markerMat = new THREE.MeshLambertMaterial({ color: 0xf4efe4, flatShading: true });
+  const sockMat = new THREE.MeshLambertMaterial({ color: 0xf2692a, flatShading: true });
   const poleMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
   for (const a of world.areas) {
     const c = Math.cos(a.rotation), s = Math.sin(a.rotation);
