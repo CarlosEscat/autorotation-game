@@ -264,13 +264,14 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
   return group;
 }
 
-/** Translucent column and ring marking the currently selected landing area. */
+/** Translucent column and ring marking the currently selected landing area. The renderer fades the column with distance. */
 export function buildTargetBeacon(): THREE.Group {
   const g = new THREE.Group();
   const col = new THREE.Mesh(
     new THREE.CylinderGeometry(3, 3, 140, 8, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xffe14d, transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }),
   );
+  col.name = 'column';
   col.position.y = 70;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(14, 0.9, 4, 20), new THREE.MeshBasicMaterial({ color: 0xffe14d }));
   ring.rotation.x = Math.PI / 2;

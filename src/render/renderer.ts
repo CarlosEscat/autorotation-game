@@ -18,6 +18,7 @@ export class GameRenderer {
   readonly camera: THREE.PerspectiveCamera;
   private heli: HelicopterModel;
   private beacon: THREE.Group;
+  private beaconColumn: THREE.MeshBasicMaterial;
   private markers: THREE.Group | null = null;
   private gates: THREE.Mesh[] = [];
   private sky: THREE.Mesh;
@@ -65,6 +66,7 @@ export class GameRenderer {
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
     this.beacon = buildTargetBeacon();
+    this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon);
 
     this.heli = buildHelicopter();
@@ -181,6 +183,11 @@ export class GameRenderer {
     const gy = this.world.heightAt(s.pos.x, s.pos.z);
     this.shadow.position.set(s.pos.x, gy + 0.15, s.pos.z);
     this.shadow.visible = !this.shadows && !cockpit && s.pos.y - gy < 60;
+
+    // The column guides from afar but would wash out the helicopter near the target.
+    const bd = Math.hypot(s.pos.x - this.beacon.position.x, s.pos.z - this.beacon.position.z);
+    this.beaconColumn.opacity = 0.22 * THREE.MathUtils.smoothstep(bd, 40, 250);
+    this.beaconColumn.visible = this.beaconColumn.opacity > 0.005;
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
     this.renderer.render(this.scene, this.camera);
