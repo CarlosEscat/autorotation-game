@@ -6,8 +6,19 @@ import { FlightSession } from './session';
 export type Mode = 'keyboard' | 'touch';
 
 export const KEY_WORDS = {
-  keyboard: { down: 'S', up: 'W', fwd: '↑', aft: '↓', turn: '← →', target: 'T' },
-  touch: { down: 'slide COLL down', up: 'raise COLL', fwd: 'stick forward', aft: 'stick back', turn: 'stick left/right', target: 'TGT' },
+  keyboard: { down: 'S', up: 'W', fwd: '↑', aft: '↓', turn: '← →', left: '←', right: '→', yawLeft: 'A', yawRight: 'D', target: 'T' },
+  touch: {
+    down: 'slide COLL down',
+    up: 'raise COLL',
+    fwd: 'stick forward',
+    aft: 'stick back',
+    turn: 'stick left/right',
+    left: 'stick left',
+    right: 'stick right',
+    yawLeft: '◀ pedal',
+    yawRight: '▶ pedal',
+    target: 'TGT',
+  },
 };
 
 /**

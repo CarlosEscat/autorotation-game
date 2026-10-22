@@ -38,18 +38,45 @@ export interface Gate {
   z: number;
   agl: number;
   radius: number;
+  /** Ring orientation (rotation about Y); by default it faces along the path to the next gate. */
+  facing?: number;
 }
 
-export interface LevelDef {
+export type TierId = 'beginner' | 'intermediate' | 'expert';
+
+/** A section of the training menu. Its lessons are the levels with this tier, in list order. */
+export interface TierDef {
+  id: TierId;
+  title: string;
+  blurb: string;
+}
+
+export const TIERS: TierDef[] = [
+  { id: 'beginner', title: 'Beginner', blurb: 'Learn to fly: engine running, no emergencies.' },
+  { id: 'intermediate', title: 'Intermediate', blurb: 'The engine quits: save the rotor, glide and flare.' },
+  { id: 'expert', title: 'Expert', blurb: 'Full autorotations to the ground, by hand.' },
+];
+
+/** A level as written below; its place in the menu (`num`, `label`) is worked out from its tier. */
+interface LevelSpec {
   id: string;
-  num: number;
+  tier: TierId;
   title: string;
   teaches: string;
   config: FlightConfig;
   /** Landing area selected at the start, or null to hide the beacon. */
   target: string | null;
   gates: Gate[];
+  /** Show only the next gate instead of every one still ahead (rings close together). */
+  nextGateOnly?: boolean;
   makeObjective(world: World): Objective;
+}
+
+export interface LevelDef extends LevelSpec {
+  /** 1-based position within its tier. */
+  num: number;
+  /** Tier and position, e.g. "Beginner 2". */
+  label: string;
 }
 
 type Update = Partial<ObjectiveStatus> & { text: string };
@@ -89,11 +116,23 @@ export function windAngleDeg(td: TouchdownReport, windKt: number): number {
 const BASE: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 0, windFromDeg: 0, failureDelay: 4, difficulty: 'easy' };
 const NEVER = 1e9;
 const MEADOW_APPROACH = { x: -380, z: 700, yaw: 0 };
+/** Engine running the whole time, and resting on the skids is allowed (beginner lessons near the ground). */
+const POWERED: FlightConfig = { ...BASE, airspeedKt: 0, failureDelay: NEVER, freeFlight: true };
+/** Centreline of the north–south airport runway; its south end is at z = -175. */
+const RUNWAY_X = -180;
+const HOVER_SPOT = { x: RUNWAY_X + 8, z: -300 };
+/** Hover box corners, 15 m apart: forward, left, back, then right to the start. Each ring faces the way you arrive. */
+const HOVER_BOX: Gate[] = [
+  [0, -15, Math.PI],
+  [-15, -15, -Math.PI / 2],
+  [-15, 0, 0],
+  [0, 0, Math.PI / 2],
+].map(([dx, dz, facing]) => ({ x: HOVER_SPOT.x + dx, z: HOVER_SPOT.z + dz, agl: 7.5, radius: 7, facing }));
 
-export const LEVELS: LevelDef[] = [
+const SPECS: LevelSpec[] = [
   {
     id: 'basics',
-    num: 1,
+    tier: 'beginner',
     title: 'Basic flying',
     teaches: 'Cyclic to bank and change speed, collective to climb and descend.',
     config: { ...BASE, altitudeFt: 600, failureDelay: NEVER },
@@ -126,8 +165,139 @@ export const LEVELS: LevelDef[] = [
     },
   },
   {
+    id: 'hover',
+    tier: 'beginner',
+    title: 'Hover',
+    teaches: 'Pedals turn the nose, small cyclic inputs move you a few metres, the collective holds the height.',
+    config: { ...POWERED, altitudeFt: 10, start: { ...HOVER_SPOT, yaw: 0, settle: 'hover' } },
+    target: null,
+    gates: HOVER_BOX,
+    nextGateOnly: true,
+    makeObjective() {
+      const gates = this.gates;
+      const headings = [270, 360];
+      // Settle, two pedal turns, then the four corners of the hover box.
+      const steps = 1 + headings.length + gates.length;
+      let step = 0, held = 0, peakSpeed = 0;
+      return lesson(({ session, mode }, dt) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        if (session.touchdown) return fail(`Touched the ground. Keep a little collective (${k.up}) to stay a few feet up.`);
+        if (s.agl > 12) return fail(`Too high (${ft(s.agl)} ft): a hover is just above the ground. Lower the collective (${k.down}) sooner.`);
+        if (Math.hypot(s.pos.x - HOVER_SPOT.x, s.pos.z - HOVER_SPOT.z) > 60) return fail('Drifted too far. Small cyclic inputs, and stop each move before it runs away.');
+        if (s.time > 180) return fail('Out of time. Small, steady inputs work best.');
+        peakSpeed = Math.max(peakSpeed, s.groundSpeed);
+        const steady = s.groundSpeed < 1.5 && Math.abs(s.verticalSpeed) < 0.6;
+        const g = step > headings.length ? gates[step - 1 - headings.length] : null;
+        const want = step >= 1 && step <= headings.length ? headings[step - 1] : null;
+        const off = want === null ? 0 : Math.abs(wrapAngle((s.heading - want) * DEG)) / DEG;
+        const there = g ? Math.hypot(s.pos.x - g.x, s.pos.z - g.z) < 3 : want !== null ? off < 8 : true;
+        held = there && steady ? held + dt : 0;
+        if (held >= (step === 0 ? 3 : 1)) (step++, (held = 0));
+        const nextGate = Math.max(0, step - 1 - headings.length);
+        if (step === steps) return { ...pass(s.time < 75 && peakSpeed < 4 ? 3 : s.time < 120 ? 2 : 1, 'Hover box done!'), nextGate };
+        const height =
+          s.agl < 1 ? ` Low: a touch of collective (${k.up}).` : s.agl > 6 ? ` High: ease the collective down (${k.down}).` : '';
+        const turn = (dir: string, key: string) => `${dir} pedal (${key}): turn the nose to ${String(want).padStart(3, '0')}° (now ${String(Math.round(s.heading) % 360).padStart(3, '0')}°), then let go.`;
+        const text = [
+          `You are hovering at about 10 ft. Hold still: small collective inputs (${k.up} / ${k.down}) keep the height.`,
+          turn('Left', k.yawLeft),
+          turn('Right', k.yawRight),
+          `Ease forward (${k.fwd}) into the yellow ring ahead, then stop over it (${k.aft}).`,
+          `Slide left (${k.left}) to the next ring, then stop (${k.right}).`,
+          `Ease back (${k.aft}) to the ring behind you, then stop (${k.fwd}).`,
+          `Slide right (${k.right}) back to where you started, then stop (${k.left}).`,
+        ][step];
+        return { text: text + height, progress: step / steps, nextGate };
+      });
+    },
+  },
+  {
+    id: 'takeoff',
+    tier: 'beginner',
+    title: 'Running takeoff',
+    teaches: 'Get light on the skids, slide forward to build speed, then climb away.',
+    config: { ...POWERED, altitudeFt: 0, start: { x: RUNWAY_X, z: -200, yaw: 0, settle: 'skids' } },
+    target: null,
+    gates: [{ x: RUNWAY_X, z: -1000, agl: 75, radius: 30 }],
+    makeObjective(world) {
+      const gate = this.gates[0];
+      let earlyClimb = false, drifted = false;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const kt = s.airspeed * MS_TO_KT;
+        if (s.agl > 3 && kt < 15) earlyClimb = true;
+        if (s.agl < 3 && Math.abs(s.pos.x - RUNWAY_X) > 10) drifted = true;
+        if (s.agl > 15 && kt < 15) return fail('Climbed straight up. Build speed low over the runway first, then climb.');
+        // The ring faces down the runway: count it when the helicopter crosses its plane inside the rim.
+        if (s.pos.z <= gate.z && Math.hypot(s.pos.x - gate.x, s.pos.y - gateY(gate, world)) < gate.radius) {
+          if (kt < 35) return fail(`Too slow through the ring (${Math.round(kt)} kt). Keep the nose down longer to build 40 kt.`);
+          const faults = Number(earlyClimb) + Number(drifted) + Number(kt < 45);
+          return { ...pass(3 - Math.min(2, faults), `Through the ring at ${Math.round(kt)} kt!`), nextGate: 1 };
+        }
+        if (s.pos.z <= gate.z) return fail(`Missed the ring (${s.pos.y > gateY(gate, world) ? 'too high' : 'too low'}). It sits at about ${ft(gate.agl)} ft beyond the runway end.`);
+        if (s.time > 120) return fail('Out of time. Raise the collective until the helicopter gets light, then ease the nose forward.');
+        const text = session.onSkids
+          ? s.groundSpeed < 1
+            ? `Raise the collective slowly (${k.up}) until the helicopter gets light, then ease the nose forward (${k.fwd}) to start sliding.`
+            : `Sliding! Keep the nose a little down (${k.fwd}) and let the speed build. It lifts off by itself.`
+          : kt < 30
+            ? s.agl > 3
+              ? `Too high for this speed. Lower the nose (${k.fwd}) and build speed before you climb.`
+              : 'Airborne! Stay low over the runway and keep accelerating.'
+            : s.pos.y > gateY(gate, world) + gate.radius * 0.6
+              ? `Above the ring: lower the collective a little (${k.down}) and keep 40+ kt.`
+              : `Good speed (${Math.round(kt)} kt). Raise the collective (${k.up}) and climb toward the ring past the runway end. Keep 40+ kt.`;
+        return { text, progress: Math.min(1, kt / 40), nextGate: 0 };
+      });
+    },
+  },
+  {
+    id: 'landing',
+    tier: 'beginner',
+    title: 'Running landing',
+    teaches: 'Descend gently onto the runway and touch down while still moving forward.',
+    config: { ...POWERED, altitudeFt: 80, airspeedKt: 45, start: { x: RUNWAY_X, z: 150, yaw: 0 } },
+    target: null,
+    gates: [],
+    makeObjective(world) {
+      let td: TouchdownReport | null = null;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        if (!td && session.touchdown) {
+          td = session.touchdown;
+          if (td.area?.id !== 'runway') return fail('Touched down off the runway. Line up with it and land on the paved strip.');
+          if (td.verticalSpeed > 2.03) return fail(`Hard landing (${fpm(td.verticalSpeed)} fpm). Raise the collective (${k.up}) near the ground to soften it.`);
+          if (td.groundSpeed > 20.6) return fail(`Too fast (${Math.round(td.groundSpeed * MS_TO_KT)} kt). Raise the nose (${k.aft}) on the way down to slow to 20–30 kt.`);
+        }
+        if (td) {
+          if (session.onSkids && s.groundSpeed < 0.5) {
+            const tdKt = td.groundSpeed * MS_TO_KT;
+            const centred = Math.abs(world.areas.find((a) => a.id === 'runway')!.cx - s.pos.x) < 8;
+            const stars = td.verticalSpeed < 0.76 && tdKt >= 10 && tdKt <= 30 && centred ? 3 : td.verticalSpeed < 1.52 ? 2 : 1;
+            return pass(stars, `Touched down at ${Math.max(0, fpm(td.verticalSpeed))} fpm, ${Math.round(tdKt)} kt.`);
+          }
+          return { text: `Touchdown! Lower the collective (${k.down}) and let it slide to a stop.` };
+        }
+        if (s.pos.z < -925) return fail('Flew past the end of the runway. Start the descent earlier.');
+        if (s.time > 90) return fail('Out of time. Lower the collective a little to descend onto the runway.');
+        const text =
+          s.verticalSpeed < -3
+            ? `Sinking fast (${fpm(-s.verticalSpeed)} fpm). Raise the collective a little (${k.up}).`
+            : s.agl > 15
+              ? `Runway straight ahead. Lower the collective a little (${k.down}) for a gentle descent; hold about 40 kt.`
+              : s.agl > 3
+                ? `Keep coming down gently. Raise the nose a touch (${k.aft}) to slow to 20–30 kt.`
+                : `Almost down. A little collective (${k.up}) to soften the touchdown, and keep moving forward.`;
+        return { text };
+      });
+    },
+  },
+  {
     id: 'failure',
-    num: 2,
+    tier: 'intermediate',
     title: 'Engine failure!',
     teaches: 'Lower the collective at once and keep rotor RPM in the green.',
     config: { ...BASE, altitudeFt: 3000, failureDelay: 3 },
@@ -163,7 +333,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'glide',
-    num: 3,
+    tier: 'intermediate',
     title: 'Glide speed',
     teaches: 'Hold 55–70 kt: slower or faster than that, you sink faster.',
     config: { ...BASE, altitudeFt: 2500, airspeedKt: 65, start: { x: 0, z: 1100, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -197,7 +367,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'field',
-    num: 4,
+    tier: 'intermediate',
     title: 'Pick a field',
     teaches: 'Choose a field you can reach, glide to it and land.',
     // Facing east: the preselected Rocky Clearing is too far; one T press selects Big Meadow, in reach just right of the nose.
@@ -234,7 +404,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'flare',
-    num: 5,
+    tier: 'intermediate',
     title: 'The flare',
     teaches: 'Pull back at about 50 ft to stop the sink and slow down.',
     config: { ...BASE, altitudeFt: 300, airspeedKt: 60, start: { ...MEADOW_APPROACH, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -266,7 +436,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'cushion',
-    num: 6,
+    tier: 'expert',
     title: 'Flare and cushion',
     teaches: 'Flare at 50–60 ft, level the skids at about 10 ft, then cushion with the collective at about 5 ft.',
     // No auto-cushion: the flare has to take off the speed and the collective the last of the sink.
@@ -315,7 +485,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'wind',
-    num: 7,
+    tier: 'expert',
     title: 'Wind',
     teaches: 'Land facing into the wind, it cuts your ground speed.',
     config: { ...BASE, windKt: 15, windFromDeg: 330, start: { x: 300, z: 400, yaw: Math.PI / 2, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -351,7 +521,7 @@ export const LEVELS: LevelDef[] = [
   },
   {
     id: 'checkride',
-    num: 8,
+    tier: 'expert',
     title: 'Checkride',
     teaches: 'Everything together, realistic mode, no assist.',
     config: { ...BASE, difficulty: 'normal', windKt: 8 },
@@ -372,7 +542,17 @@ export const LEVELS: LevelDef[] = [
   },
 ];
 
-/** Level `index` is open once the one before it has been passed. */
+/** Every level in play order: tier by tier, each tier's lessons in list order. */
+export const LEVELS: LevelDef[] = TIERS.flatMap((t) =>
+  SPECS.filter((l) => l.tier === t.id).map((l, i) => ({ ...l, num: i + 1, label: `${t.title} ${i + 1}` })),
+);
+
+export const tierOf = (def: LevelDef) => TIERS.find((t) => t.id === def.tier)!;
+
+/**
+ * Level `index` is open once the one before it has been passed, across tier boundaries.
+ * A level that already has stars stays open (older saves predate the newer lessons).
+ */
 export function isUnlocked(index: number, progress: Record<string, number>): boolean {
-  return index === 0 || (progress[LEVELS[index - 1]?.id] ?? 0) > 0;
+  return index === 0 || (progress[LEVELS[index - 1]?.id] ?? 0) > 0 || (progress[LEVELS[index]?.id] ?? 0) > 0;
 }

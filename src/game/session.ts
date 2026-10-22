@@ -1,7 +1,7 @@
-import { AIRCRAFT as A, M_TO_FT, MS_TO_KT } from '../sim/aircraft';
-import { SIM_DT, failEngine, stepFlight, trimmedState, updateDerived } from '../sim/flightModel';
+import { AIRCRAFT as A, GRAVITY, M_TO_FT, MS_TO_KT } from '../sim/aircraft';
+import { SIM_DT, failEngine, rotorAero, stepFlight, trimmedState, updateDerived } from '../sim/flightModel';
 import { ControlInputs, FlightEnvironment, HelicopterState } from '../sim/state';
-import { DEG, Vec3, clamp, hlen, scale, smoothstep, v3 } from '../sim/vec';
+import { DEG, Vec3, bodyAxes, clamp, hlen, scale, smoothstep, sub, v3 } from '../sim/vec';
 import { World } from '../world/world';
 import {
   GroundContact,
@@ -43,6 +43,11 @@ export interface StartOverride {
   z: number;
   yaw: number;
   autorotating?: { sinkMs: number; collective: number };
+  /**
+   * Powered starts near the ground (use with `freeFlight`, `airspeedKt: 0`):
+   * 'skids' sits on the ground with the collective down; 'hover' sets the collective to hold height in ground effect.
+   */
+  settle?: 'skids' | 'hover';
 }
 
 export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, windKt: 8, windFromDeg: 0, failureDelay: 4 };
@@ -116,6 +121,30 @@ export class FlightSession {
     updateDerived(this.state, this.env);
     this.rec.start(this.state);
     if (config.start?.autorotating) this.enterAutorotation(config.start.autorotating);
+    if (config.start?.settle === 'skids') {
+      this.state.collective = 0.15;
+      this.landed = true;
+    } else if (config.start?.settle === 'hover') this.trimHover();
+  }
+
+  /** Collective that makes thrust equal weight at the current height, ground effect included. */
+  private trimHover() {
+    const s = this.state;
+    const axes = bodyAxes(s.yaw, s.pitch, s.roll);
+    const vAir = sub(s.vel, this.wind);
+    const hubAgl = s.agl + A.skidHeight + A.hubHeight;
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 20; i++) {
+      const mid = (lo + hi) / 2;
+      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl).thrust > A.mass * GRAVITY) hi = mid;
+      else lo = mid;
+    }
+    s.collective = lo;
+  }
+
+  /** Free flight only: resting on the skids with the engine running. */
+  get onSkids(): boolean {
+    return this.landed;
   }
 
   /** Start in a settled power-off glide instead of powered cruise. */
@@ -198,15 +227,20 @@ export class FlightSession {
       this.events.push({ type: 'touchdown', text: 'TOUCHDOWN' });
     }
     // Sit on the skids: no sinking into the ground, skid friction, level attitude.
+    // Both scale with the weight still on the skids, so a helicopter made light with the
+    // collective can slide forward and tilt (a running takeoff or landing).
+    const load = clamp(1 - (s.thrust * Math.cos(s.pitch) * Math.cos(s.roll)) / (A.mass * GRAVITY), 0, 1);
+    // Lifting off: the rotor carries all the weight, let it climb clear of the ground.
+    if (load === 0 && s.vel.y > 0) return;
     s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + A.skidHeight;
     s.vel.y = Math.max(0, s.vel.y);
     const gs = hlen(s.vel);
     if (gs > 0) {
-      const dv = Math.min(gs, 0.55 * 9.81 * dt);
+      const dv = Math.min(gs, 0.55 * GRAVITY * load * dt);
       s.vel.x -= (s.vel.x / gs) * dv;
       s.vel.z -= (s.vel.z / gs) * dv;
     }
-    const level = Math.min(1, dt * 6);
+    const level = Math.min(1, dt * 6 * load);
     s.pitch -= s.pitch * level;
     s.pitchCmd = s.pitch;
     s.roll -= s.roll * level;

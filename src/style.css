@@ -179,6 +179,10 @@ body.touch .hint { bottom: calc(24px + var(--safe-b)); max-width: min(38vw, 380p
 .good-list li::marker { color: var(--green); }
 .bad-list li::marker { color: var(--amber); }
 
+.tier { margin-bottom: 14px; }
+.tier-head { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 2px; font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.tier-stars { font: 700 12px var(--mono); letter-spacing: 0; color: var(--ink); opacity: 0.7; }
+.tier-blurb { margin: 0 0 8px; font-size: 12px; opacity: 0.75; }
 .level-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
 .level-card { display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 12px; border-radius: 12px; border: 2px solid var(--edge); background: #1f2433; color: var(--ink); font: 600 12px/1.35 var(--font); cursor: pointer; touch-action: manipulation; }
 .level-card:hover:not(:disabled) { background: #2a3145; border-color: var(--accent); }

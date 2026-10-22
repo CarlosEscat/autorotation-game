@@ -73,6 +73,51 @@ const BASICS = svg(
     text(160, 152, 'Fly through the rings in order', INK, 'middle', 600),
 );
 
+const HOVER = svg(
+  `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
+    `<rect x="186" y="30" width="80" height="80" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.5"/>` +
+    [[266, 30, 1], [186, 30, 2], [186, 110, 3], [266, 110, 4]]
+      .map(([x, y, n]) => `<circle cx="${x}" cy="${y}" r="9" style="stroke:${ACC}" stroke-width="3"/>` + text(x + (x > 200 ? 16 : -16), y + 4, String(n), ACC))
+      .join('') +
+    heliTop(266, 110, 0) +
+    arrow(266, 92, 266, 46) +
+    heliTop(70, 80, 0) +
+    `<path d="M48 62 A 28 28 0 0 1 70 52" style="stroke:${ACC}" stroke-width="2"/>` +
+    arrow(52, 58, 46, 66) +
+    `<path d="M92 62 A 28 28 0 0 0 70 52" style="stroke:${ACC}" stroke-width="2"/>` +
+    arrow(88, 58, 94, 66) +
+    text(70, 32, 'PEDALS', ACC) +
+    text(70, 128, 'turn on the spot', INK, 'middle', 600) +
+    text(226, 152, 'then the hover box, 1 → 4', INK, 'middle', 600),
+);
+
+const TAKEOFF = svg(
+  ground() +
+    `<rect x="10" y="${GROUND - 3}" width="200" height="4" style="fill:${INK}" opacity="0.35"/>` +
+    text(100, 156, 'RUNWAY', INK, 'middle', 600) +
+    heli(36, GROUND - 10, -4) +
+    arrow(56, GROUND - 6, 120, GROUND - 6) +
+    text(88, GROUND - 16, 'slide', ACC) +
+    `<path d="M120 ${GROUND - 8} Q 190 ${GROUND - 12} 270 52" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    heli(160, GROUND - 16, -6, ACC) +
+    text(160, GROUND - 34, 'lift off', ACC) +
+    ring(286, 46, 1) +
+    text(286, 90, '40+ kt', GREEN),
+);
+
+const LANDING = svg(
+  ground() +
+    `<rect x="150" y="${GROUND - 3}" width="170" height="4" style="fill:${INK}" opacity="0.35"/>` +
+    text(235, 156, 'RUNWAY', INK, 'middle', 600) +
+    height(40, '80 ft') +
+    heli(50, 40, -3) +
+    `<path d="M66 46 L196 ${GROUND - 12}" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    text(110, 62, 'gentle descent', INK, 'start', 600) +
+    heli(212, GROUND - 10, 2, GREEN) +
+    arrow(232, GROUND - 6, 290, GROUND - 6, GREEN) +
+    text(250, GROUND - 22, 'touch down moving', GREEN),
+);
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -197,6 +242,36 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Fly through all three rings without getting too low. Faster runs earn more stars.',
     diagram: BASICS,
+  },
+  hover: {
+    goal: 'Hold a steady hover a few feet off the runway: turn on the spot with the pedals, then move a few metres at a time.',
+    steps: (k) => [
+      `The <b>collective</b> holds the height: small taps of <b>${k.up}</b> / <b>${k.down}</b>. Don't let the skids touch the ground.`,
+      `The <b>pedals</b> turn the nose: <b>${k.yawLeft}</b> for left, <b>${k.yawRight}</b> for right. Let go just before the heading you want.`,
+      `Small <b>cyclic</b> inputs move you: <b>${k.fwd}</b> / <b>${k.aft}</b> forward and back, <b>${k.left}</b> / <b>${k.right}</b> sideways. Every move needs the opposite input to stop it.`,
+    ],
+    pass: 'Finish both turns and the four rings of the hover box without touching down. A quick, gentle box earns three stars.',
+    diagram: HOVER,
+  },
+  takeoff: {
+    goal: 'Sitting on the runway, engine running. Take off like an aeroplane: slide forward to build speed, then climb.',
+    steps: (k) => [
+      `Raise the collective slowly (<b>${k.up}</b>) until the helicopter feels light on its skids.`,
+      `Ease the nose forward (<b>${k.fwd}</b>) to slide along the runway. Stay low and straight while the speed builds: it lifts off by itself.`,
+      `Past 30 kt, raise the collective more (<b>${k.up}</b>) and climb through the ring beyond the runway end.`,
+    ],
+    pass: 'Fly through the ring at 35 kt or more. Staying low until you have speed, keeping to the centreline and 45+ kt at the ring earn three stars.',
+    diagram: TAKEOFF,
+  },
+  landing: {
+    goal: 'On approach to the runway at 80 ft and 45 kt. Fly it down and touch down while still moving forward.',
+    steps: (k) => [
+      `Lower the collective a little (<b>${k.down}</b>) for a gentle descent toward the runway ahead.`,
+      `On the way down, raise the nose a touch (<b>${k.aft}</b>) to slow to about <b>20–30 kt</b>.`,
+      `Just above the runway, add a little collective (<b>${k.up}</b>) to soften the touchdown. Then lower it (<b>${k.down}</b>) and slide to a stop.`,
+    ],
+    pass: 'Touch down on the runway slower than 400 fpm and 40 kt. Under 150 fpm, at 10–30 kt and on the centreline earns three stars.',
+    diagram: LANDING,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',

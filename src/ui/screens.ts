@@ -1,7 +1,7 @@
 import { KEY_BINDINGS } from '../input/keyboard';
 import { Difficulty, FlightConfig, FlightResult } from '../game/session';
 import { Outcome } from '../game/landing';
-import { LEVELS, LevelDef, ObjectiveStatus, isUnlocked } from '../game/levels';
+import { LEVELS, LevelDef, ObjectiveStatus, TIERS, isUnlocked, tierOf } from '../game/levels';
 import { KEY_WORDS, Mode } from '../game/hints';
 import { BRIEFINGS } from './briefings';
 
@@ -176,20 +176,31 @@ export class Screens {
     el.textContent = best === null ? '' : `Best score ${best} / 100 · ${attempts} attempt${attempts === 1 ? '' : 's'}`;
   }
 
-  /** Level picker; a level opens once the previous one is passed. */
+  /** Level picker, one section per tier; a level opens once the previous one is passed. */
   showTraining(progress: Record<string, number>) {
-    const cards = LEVELS.map((l, i) => {
+    const card = (l: LevelDef) => {
+      const i = LEVELS.indexOf(l);
       const open = isUnlocked(i, progress);
       const got = progress[l.id] ?? 0;
       return `<button class="level-card" data-a="brief" data-i="${i}"${open ? '' : ' disabled'}>
         <span class="lc-num">${l.num}</span><span class="lc-title">${esc(l.title)}</span>
-        <span class="lc-teach">${open ? esc(l.teaches) : `🔒 Pass level ${l.num - 1} to unlock`}</span>
+        <span class="lc-teach">${open ? esc(l.teaches) : `🔒 Pass ${esc(LEVELS[i - 1].label)} to unlock`}</span>
         ${stars(got)}</button>`;
+    };
+    const sections = TIERS.map((t) => {
+      const levels = LEVELS.filter((l) => l.tier === t.id);
+      if (!levels.length) return '';
+      const got = levels.reduce((n, l) => n + (progress[l.id] ?? 0), 0);
+      return `<section class="tier">
+        <h3 class="tier-head">${esc(t.title)}<span class="tier-stars">${got} / ${levels.length * 3} ★</span></h3>
+        <p class="tier-blurb">${esc(t.blurb)}</p>
+        <div class="level-grid">${levels.map(card).join('')}</div>
+      </section>`;
     }).join('');
     this.training.innerHTML = `<div class="panel wide">
       <h2>Training</h2>
       <p class="tagline">Short lessons, one skill each. Pass a level to unlock the next.</p>
-      <div class="level-grid">${cards}</div>
+      ${sections}
       <div class="buttons"><button class="btn" data-a="back">Back</button></div>
     </div>`;
     this.show('training');
@@ -201,7 +212,7 @@ export class Screens {
     const b = BRIEFINGS[def.id];
     const steps = b.steps(KEY_WORDS[mode]).map((t) => `<li>${t}</li>`).join('');
     this.briefing.innerHTML = `<div class="panel wide brief-panel">
-      <div class="lvl-num">Level ${def.num} of ${LEVELS.length}</div>
+      <div class="lvl-num">${esc(tierOf(def).title)} · Lesson ${def.num} of ${LEVELS.filter((l) => l.tier === def.tier).length}</div>
       <h2>${esc(def.title)}</h2>
       <p class="brief-goal">${esc(b.goal)}</p>
       <div class="brief-body">
@@ -221,7 +232,7 @@ export class Screens {
       ? '<button class="btn primary" data-a="next">Next level <small>(Enter)</small></button><button class="btn" data-a="restart">Retry</button>'
       : `<button class="btn primary" data-a="restart">Retry <small>(Enter)</small></button>`;
     this.results.innerHTML = `<div class="panel results-panel">
-      <div class="lvl-num">Level ${def.num} · ${esc(def.title)}</div>
+      <div class="lvl-num">${esc(def.label)} · ${esc(def.title)}</div>
       <div class="outcome ${passed ? 'excellent' : 'crash'}">${title}</div>
       ${passed ? stars(status.stars) : ''}
       <div class="reason">${esc(passed ? status.text : (status.reason ?? status.text))}</div>

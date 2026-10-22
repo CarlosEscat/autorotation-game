@@ -293,7 +293,7 @@ export class Game {
       const hint = !l && !this.free && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
       const lesson =
         l && this.state === 'flying'
-          ? { title: `Level ${l.def.num} · ${l.def.title}`, text: l.status.text, progress: l.status.progress }
+          ? { title: `${l.def.label} · ${l.def.title}`, text: l.status.text, progress: l.status.progress }
           : this.free && this.state === 'flying' && s.time < 8
             ? { title: 'Fly around', text: 'The engine will not fail. Explore, land anywhere and take off again.', progress: null }
             : null;
@@ -337,7 +337,7 @@ export class Game {
   }
 
   private updateLevel(l: ActiveLevel, dt: number) {
-    this.renderer.setGates(l.def.gates, l.status.nextGate ?? 0);
+    this.renderer.setGates(l.def.gates, l.status.nextGate ?? 0, l.def.nextGateOnly);
     if (l.endIn === null) return;
     l.endIn -= dt;
     if (l.endIn > 0) return;
