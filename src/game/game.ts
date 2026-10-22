@@ -337,7 +337,7 @@ export class Game {
   }
 
   private updateLevel(l: ActiveLevel, dt: number) {
-    this.renderer.setGates(l.def.gates, l.status.nextGate ?? 0, l.def.nextGateOnly);
+    this.renderer.setGates(l.def.gates, l.status.nextGate ?? 0);
     if (l.endIn === null) return;
     l.endIn -= dt;
     if (l.endIn > 0) return;

@@ -40,6 +40,8 @@ export interface Gate {
   radius: number;
   /** Ring orientation (rotation about Y); by default it faces along the path to the next gate. */
   facing?: number;
+  /** Stay hidden until it is the next gate (e.g. a ring around the start position). */
+  hiddenUntilNext?: boolean;
 }
 
 export type TierId = 'beginner' | 'intermediate' | 'expert';
@@ -67,8 +69,6 @@ interface LevelSpec {
   /** Landing area selected at the start, or null to hide the beacon. */
   target: string | null;
   gates: Gate[];
-  /** Show only the next gate instead of every one still ahead (rings close together). */
-  nextGateOnly?: boolean;
   makeObjective(world: World): Objective;
 }
 
@@ -121,13 +121,16 @@ const POWERED: FlightConfig = { ...BASE, airspeedKt: 0, failureDelay: NEVER, fre
 /** Centreline of the north–south airport runway; its south end is at z = -175. */
 const RUNWAY_X = -180;
 const HOVER_SPOT = { x: RUNWAY_X + 8, z: -300 };
-/** Hover box corners, 15 m apart: forward, left, back, then right to the start. Each ring faces the way you arrive. */
+/**
+ * Hover box corners, 15 m apart: forward, left, back, then right to the start. Each ring faces the way you
+ * arrive; the last one surrounds the start position, so it only appears once it is next.
+ */
 const HOVER_BOX: Gate[] = [
   [0, -15, Math.PI],
   [-15, -15, -Math.PI / 2],
   [-15, 0, 0],
   [0, 0, Math.PI / 2],
-].map(([dx, dz, facing]) => ({ x: HOVER_SPOT.x + dx, z: HOVER_SPOT.z + dz, agl: 7.5, radius: 7, facing }));
+].map(([dx, dz, facing], i) => ({ x: HOVER_SPOT.x + dx, z: HOVER_SPOT.z + dz, agl: 7.5, radius: 7, facing, hiddenUntilNext: i === 3 }));
 
 const SPECS: LevelSpec[] = [
   {
@@ -172,7 +175,6 @@ const SPECS: LevelSpec[] = [
     config: { ...POWERED, altitudeFt: 10, start: { ...HOVER_SPOT, yaw: 0, settle: 'hover' } },
     target: null,
     gates: HOVER_BOX,
-    nextGateOnly: true,
     makeObjective() {
       const gates = this.gates;
       const headings = [270, 360];

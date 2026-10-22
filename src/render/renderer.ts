@@ -107,8 +107,8 @@ export class GameRenderer {
     if (area) this.beacon.position.set(area.cx, area.elevation, area.cz);
   }
 
-  /** Shows the gates of a gate level; gates before `next` (or, with `onlyNext`, every other) are hidden, the next one is yellow. */
-  setGates(gates: Gate[], next: number, onlyNext = false) {
+  /** Shows the gates of a gate level; gates before `next` are hidden, the next one is yellow. */
+  setGates(gates: Gate[], next: number) {
     if (this.gates.length !== gates.length) {
       for (const m of this.gates) this.scene.remove(m);
       this.gates = gates.map((g, i) => {
@@ -122,7 +122,7 @@ export class GameRenderer {
       });
     }
     this.gates.forEach((m, i) => {
-      m.visible = onlyNext ? i === next : i >= next;
+      m.visible = gates[i].hiddenUntilNext ? i === next : i >= next;
       (m.material as THREE.MeshBasicMaterial).color.set(i === next ? 0xffd23a : 0xffffff);
     });
   }
