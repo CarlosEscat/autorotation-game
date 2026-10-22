@@ -177,10 +177,10 @@ export class Screens {
   }
 
   /** Level picker, one section per tier; a level opens once the previous one is passed. */
-  showTraining(progress: Record<string, number>) {
+  showTraining(progress: Record<string, number>, granted: readonly string[] = []) {
     const card = (l: LevelDef) => {
       const i = LEVELS.indexOf(l);
-      const open = isUnlocked(i, progress);
+      const open = isUnlocked(i, progress, granted);
       const got = progress[l.id] ?? 0;
       return `<button class="level-card" data-a="brief" data-i="${i}"${open ? '' : ' disabled'}>
         <span class="lc-num">${l.num}</span><span class="lc-title">${esc(l.title)}</span>

@@ -333,6 +333,30 @@ export function buildTargetBeacon(): THREE.Group {
   return g;
 }
 
+/** A landing spot painted flat on the ground, centred on the origin: a yellow circle, or a heliport pad with an H. */
+export function buildPad(radius: number, kind: 'circle' | 'heliport'): THREE.Group {
+  const g = new THREE.Group();
+  const paint = (color: number) =>
+    new THREE.MeshBasicMaterial({ color, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const flat = (geo: THREE.BufferGeometry, color: number, y: number) => {
+    const m = new THREE.Mesh(geo.rotateX(-Math.PI / 2), paint(color));
+    m.position.y = y;
+    g.add(m);
+  };
+  if (kind === 'heliport') {
+    flat(new THREE.CircleGeometry(radius, 40), 0x3a3f4a, 0.04);
+    flat(new THREE.RingGeometry(radius - 0.45, radius, 40), 0xffd23a, 0.06);
+    const h = radius * 0.5, w = radius * 0.12;
+    flat(new THREE.PlaneGeometry(w, h * 2).translate(-h * 0.55, 0, 0), 0xf4efe4, 0.06);
+    flat(new THREE.PlaneGeometry(w, h * 2).translate(h * 0.55, 0, 0), 0xf4efe4, 0.06);
+    flat(new THREE.PlaneGeometry(h * 1.1, w), 0xf4efe4, 0.06);
+  } else {
+    flat(new THREE.RingGeometry(radius - 0.8, radius, 64), 0xffd23a, 0.06);
+    flat(new THREE.CircleGeometry(0.9, 16), 0xffd23a, 0.06);
+  }
+  return g;
+}
+
 /** A ring to fly through, facing +Z. Two materials so the next gate can be highlighted. */
 export function buildGate(radius: number): THREE.Mesh {
   return new THREE.Mesh(new THREE.TorusGeometry(radius, 1.3, 5, 24), new THREE.MeshBasicMaterial({ color: 0xffffff }));

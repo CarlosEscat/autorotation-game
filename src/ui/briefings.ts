@@ -118,6 +118,72 @@ const LANDING = svg(
     text(250, GROUND - 22, 'touch down moving', GREEN),
 );
 
+const RINGS = svg(
+  `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
+    `<path d="M160 140 L160 112 C 160 80, 120 70, 96 60 C 60 46, 60 20, 110 18 C 150 16, 200 24, 230 40 C 262 58, 270 90, 250 112" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    [[160, 112, 1], [96, 60, 2], [110, 18, 3], [230, 40, 4], [250, 112, 5]]
+      .map(([x, y, n]) => `<circle cx="${x}" cy="${y}" r="7" style="stroke:${ACC}" stroke-width="3"/>` + text(x + 14, y + 4, String(n), ACC))
+      .join('') +
+    heliTop(160, 140, 0) +
+    `<rect x="262" y="128" width="50" height="22" rx="5" style="stroke:${RED}" stroke-width="2"/>` +
+    text(287, 143, '0:95', RED) +
+    text(60, 152, 'Turn early, aim for the middle', INK, 'start', 600),
+);
+
+const pad = (x: number, y: number, r: number, h = false) =>
+  `<ellipse cx="${x}" cy="${y}" rx="${r}" ry="${r * 0.28}" style="stroke:${ACC};fill:${h ? '#3a3f4a' : 'none'}" stroke-width="2.5"/>` +
+  (h ? text(x, y + 3, 'H', INK) : '');
+
+const WINDFIELD = svg(
+  `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
+    `<circle cx="196" cy="88" r="34" style="stroke:${ACC}" stroke-width="3"/>` +
+    arrow(30, 140, 70, 112, '#9ec3ff') +
+    arrow(54, 152, 94, 124, '#9ec3ff') +
+    text(46, 104, 'WIND', '#9ec3ff') +
+    `<path d="M292 18 L292 46" style="stroke:${INK}" stroke-width="2"/>` +
+    `<path d="M292 20 L276 30 L292 34 Z" style="fill:#f2692a;stroke:#f2692a"/>` +
+    text(284, 60, 'windsock', INK, 'middle', 600) +
+    `<path d="M300 150 L224 112" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    heliTop(204, 96, -118, GREEN) +
+    text(196, 146, 'nose into the wind', GREEN),
+);
+
+const VTAKEOFF = svg(
+  ground() +
+    heli(46, GROUND - 10, 0) +
+    arrow(46, GROUND - 26, 46, 98) +
+    text(46, 84, '1 LIFT', ACC) +
+    heli(96, 104, 0, ACC) +
+    text(96, 82, '2 HOVER', ACC) +
+    `<path d="M112 108 Q 200 104 270 52" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    heli(176, 96, -8) +
+    text(176, 74, '3 GO', ACC) +
+    ring(286, 46, 1),
+);
+
+const VLANDING = svg(
+  ground() +
+    pad(200, GROUND, 52) +
+    heli(110, 40, 0) +
+    arrow(132, 40, 186, 40) +
+    text(156, 30, '1 OVER IT', ACC) +
+    heli(200, 52, 0, ACC) +
+    arrow(200, 66, 200, 118, GREEN) +
+    text(244, 90, '2 STRAIGHT DOWN', GREEN, 'start') +
+    text(200, 156, 'big circle · slow sink · no drift', INK, 'middle', 600),
+);
+
+const HELIPORT = svg(
+  ground() +
+    pad(230, GROUND, 18, true) +
+    pad(110, GROUND, 52) +
+    text(110, 156, 'last lesson', INK, 'middle', 500) +
+    text(230, 156, 'heliport', ACC) +
+    heli(230, 70, 0, ACC) +
+    arrow(230, 84, 230, 122, GREEN) +
+    text(250, 100, 'dead centre', GREEN, 'start'),
+);
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -272,6 +338,56 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Touch down on the runway slower than 400 fpm and 40 kt. Under 150 fpm, at 10–30 kt and on the centreline earns three stars.',
     diagram: LANDING,
+  },
+  rings: {
+    goal: 'A harder Basic flying: seven smaller rings around a circuit, at different heights, against the clock.',
+    steps: (k) => [
+      `Each ring needs a turn of about 40°. Start the turn early (<b>${k.turn}</b>) and roll out lined up with the ring.`,
+      `The rings go up and down: raise or lower the collective (<b>${k.up}</b> / <b>${k.down}</b>) before you get there, not at the ring.`,
+      `If you are turning too wide, slow down a little (<b>${k.aft}</b>): a slower helicopter turns tighter. Missed one? Circle back to it.`,
+    ],
+    pass: 'Fly through all seven rings within 95 seconds. Time to spare and passing close to the centres earn the stars.',
+    diagram: RINGS,
+  },
+  windfield: {
+    goal: 'A 12 kt wind is blowing over the meadow. Work out where it comes from and land in the yellow circle facing into it.',
+    steps: (k) => [
+      'Check the <b>windsock</b> beside the meadow and the <b>WIND</b> readout. The sock streams away from the wind.',
+      `Fly a wide circuit and line up so the nose points into the wind (<b>${k.turn}</b>), with the circle ahead of you.`,
+      `Come down gently and slow right down: into the wind you barely move over the ground. Touch down in the circle and lower the collective (<b>${k.down}</b>).`,
+    ],
+    pass: 'Touch down inside the circle, gently (under 400 fpm), with the nose within 30° of the wind. Within 10° and very soft earns three stars.',
+    diagram: WINDFIELD,
+  },
+  vtakeoff: {
+    goal: 'On the ground in the open field. Take off straight up, hover, then fly away through the ring.',
+    steps: (k) => [
+      `Raise the collective slowly (<b>${k.up}</b>) and lift straight up to about 10 ft. No forward input yet.`,
+      'Hold a steady hover over the spot for 3 seconds: stop any drift with tiny cyclic inputs.',
+      `Then ease the nose forward (<b>${k.fwd}</b>) to pick up speed, add collective (<b>${k.up}</b>) and climb through the ring.`,
+    ],
+    pass: 'A steady hover within 8 m of the spot, then through the ring. Hovering with almost no drift, quickly, earns three stars.',
+    diagram: VTAKEOFF,
+  },
+  vlanding: {
+    goal: 'Hovering at 40 ft beside a landing circle. Get over it and come straight down.',
+    steps: (k) => [
+      'Move over the middle of the circle with small cyclic inputs, then stop. The instructions tell you how far it is.',
+      `Lower the collective a little (<b>${k.down}</b>) for a slow, steady descent. Keep the helicopter still over the spot.`,
+      `In the last few feet, a touch of collective (<b>${k.up}</b>) slows the sink for a soft touchdown.`,
+    ],
+    pass: 'Touch down inside the circle, slower than 300 fpm and drifting less than 5 kt. Near the centre and very soft earns three stars.',
+    diagram: VLANDING,
+  },
+  heliport: {
+    goal: 'The final Intermediate lesson: the same vertical landing, onto a heliport pad barely wider than the helicopter.',
+    steps: (k) => [
+      'The pad is 50 m ahead. Hover-taxi to it slowly and stop exactly over the H.',
+      `Come straight down (<b>${k.down}</b>), correcting any drift early with small cyclic inputs. Drift is magnified this close to the ground.`,
+      `Cushion the last few feet (<b>${k.up}</b>) and keep still until the skids are down.`,
+    ],
+    pass: 'Touch down on the pad, slower than 300 fpm, drifting less than 4 kt. Within 1.5 m of the centre and very soft earns three stars.',
+    diagram: HELIPORT,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',

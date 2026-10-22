@@ -3,8 +3,8 @@ import { AIRCRAFT as A } from '../sim/aircraft';
 import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
-import { Gate, gateY } from '../game/levels';
-import { buildAreaMarkers, buildClouds, buildGate, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
+import { Gate, Pad, gateY } from '../game/levels';
+import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
 
@@ -23,6 +23,7 @@ export class GameRenderer {
   private padMarkers: THREE.Sprite[] = [];
   private markers: THREE.Group | null = null;
   private gates: THREE.Mesh[] = [];
+  private pads: THREE.Group[] = [];
   private sky: THREE.Mesh;
   private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
@@ -124,6 +125,17 @@ export class GameRenderer {
     this.gates.forEach((m, i) => {
       m.visible = gates[i].hiddenUntilNext ? i === next : i >= next;
       (m.material as THREE.MeshBasicMaterial).color.set(i === next ? 0xffd23a : 0xffffff);
+    });
+  }
+
+  /** Paints the landing spots of a level on the ground (an empty list clears them). */
+  setPads(pads: Pad[]) {
+    for (const m of this.pads) this.scene.remove(m);
+    this.pads = pads.map((p) => {
+      const m = buildPad(p.radius, p.kind);
+      m.position.set(p.x, this.world.heightAt(p.x, p.z), p.z);
+      this.scene.add(m);
+      return m;
     });
   }
 

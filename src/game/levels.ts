@@ -4,7 +4,8 @@ import { World } from '../world/world';
 import { computeGuidance } from './guidance';
 import { KEY_WORDS, Mode } from './hints';
 import { TouchdownReport } from './landing';
-import { FlightConfig, FlightSession } from './session';
+import { FlightConfig, FlightSession, START } from './session';
+import { HelicopterState } from '../sim/state';
 
 export type ObjectiveState = 'running' | 'passed' | 'failed';
 
@@ -44,7 +45,15 @@ export interface Gate {
   hiddenUntilNext?: boolean;
 }
 
-export type TierId = 'beginner' | 'intermediate' | 'expert';
+/** A landing spot painted on the ground: a large circle, or a small heliport pad. */
+export interface Pad {
+  x: number;
+  z: number;
+  radius: number;
+  kind: 'circle' | 'heliport';
+}
+
+export type TierId = 'beginner' | 'intermediate' | 'emergency' | 'expert';
 
 /** A section of the training menu. Its lessons are the levels with this tier, in list order. */
 export interface TierDef {
@@ -55,7 +64,8 @@ export interface TierDef {
 
 export const TIERS: TierDef[] = [
   { id: 'beginner', title: 'Beginner', blurb: 'Learn to fly: engine running, no emergencies.' },
-  { id: 'intermediate', title: 'Intermediate', blurb: 'The engine quits: save the rotor, glide and flare.' },
+  { id: 'intermediate', title: 'Intermediate', blurb: 'Precision flying: wind, tight spots and no mistakes.' },
+  { id: 'emergency', title: 'Emergency', blurb: 'The engine quits: save the rotor, glide and flare.' },
   { id: 'expert', title: 'Expert', blurb: 'Full autorotations to the ground, by hand.' },
 ];
 
@@ -69,6 +79,8 @@ interface LevelSpec {
   /** Landing area selected at the start, or null to hide the beacon. */
   target: string | null;
   gates: Gate[];
+  /** Landing spots to paint on the ground. */
+  pads?: Pad[];
   makeObjective(world: World): Objective;
 }
 
@@ -131,6 +143,91 @@ const HOVER_BOX: Gate[] = [
   [-15, 0, 0],
   [0, 0, Math.PI / 2],
 ].map(([dx, dz, facing], i) => ({ x: HOVER_SPOT.x + dx, z: HOVER_SPOT.z + dz, agl: 7.5, radius: 7, facing, hiddenUntilNext: i === 3 }));
+
+// ---------- Intermediate: the open field (Big Meadow, centre -380, 360) ----------
+
+const RINGS_TIME_LIMIT = 95;
+const WIND_CIRCLE: Pad = { x: -380, z: 360, radius: 25, kind: 'circle' };
+const VLANDING_CIRCLE: Pad = { x: -400, z: 370, radius: 12, kind: 'circle' };
+const HELIPORT: Pad = { x: -350, z: 330, radius: 5, kind: 'heliport' };
+const VTAKEOFF_SPOT = { x: -400, z: 420 };
+
+/** Sets each ring to face the way it is flown: from the previous ring (or `from`) toward it. */
+function withFacing(from: { x: number; z: number }, gates: Gate[]): Gate[] {
+  return gates.map((g, i) => {
+    const p = gates[i - 1] ?? from;
+    return { ...g, facing: Math.atan2(g.x - p.x, g.z - p.z) };
+  });
+}
+
+/**
+ * Detects flying through a ring's plane (it faces `facing`). Returns null until the helicopter crosses
+ * the plane inside the rim, then how far from the centre it passed, as a share of the radius.
+ */
+function ringCrossing(world: World) {
+  let ring: Gate | null = null, prev = 0;
+  return (s: HelicopterState, g: Gate): number | null => {
+    const dir = { x: Math.sin(g.facing ?? 0), z: Math.cos(g.facing ?? 0) };
+    const along = (s.pos.x - g.x) * dir.x + (s.pos.z - g.z) * dir.z;
+    const was = ring === g ? prev : along;
+    ring = g;
+    prev = along;
+    if (!(was < 0 && along >= 0)) return null;
+    const lateral = (s.pos.x - g.x) * dir.z - (s.pos.z - g.z) * dir.x;
+    const off = Math.hypot(lateral, s.pos.y - gateY(g, world)) / g.radius;
+    return off < 1 ? off : null;
+  };
+}
+
+/** Where a point is relative to the nose, in words: "12 m ahead and 3 m left". */
+function relativeTo(s: HelicopterState, x: number, z: number): string {
+  const dx = x - s.pos.x, dz = z - s.pos.z;
+  const fwd = -dx * Math.sin(s.yaw) - dz * Math.cos(s.yaw);
+  const right = dx * Math.cos(s.yaw) - dz * Math.sin(s.yaw);
+  const part = (v: number, pos: string, neg: string) => (Math.abs(v) < 1.5 ? '' : `${Math.round(Math.abs(v))} m ${v > 0 ? pos : neg}`);
+  return [part(fwd, 'ahead', 'behind'), part(right, 'right', 'left')].filter(Boolean).join(' and ') || 'right below you';
+}
+
+interface PadLimits {
+  maxSinkMs: number;
+  maxDriftMs: number;
+  /** Distance from the centre and sink rate needed for three stars, then for two. */
+  three: { dist: number; sinkMs: number };
+  two: { dist: number; sinkMs: number };
+}
+
+/** Start in a hover near `pad`, move over it and come straight down onto it. */
+function padLanding(pad: Pad, noun: string, lim: PadLimits): Objective {
+  let td: TouchdownReport | null = null;
+  let dist = 0;
+  return lesson(({ session, mode }) => {
+    const s = session.state;
+    const k = KEY_WORDS[mode];
+    const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+    if (!td && session.touchdown) {
+      td = session.touchdown;
+      dist = d;
+      if (dist > pad.radius) return fail(`Touched down ${Math.round(dist - pad.radius)} m off the ${noun}. Stop right over it before you come down.`);
+      if (td.verticalSpeed > lim.maxSinkMs) return fail(`Too hard (${fpm(td.verticalSpeed)} fpm). Slow the descent with the collective (${k.up}) in the last few feet.`);
+      if (td.groundSpeed > lim.maxDriftMs) return fail(`Still drifting at touchdown (${Math.round(td.groundSpeed * MS_TO_KT)} kt). Stop all movement, then come straight down.`);
+      const stars =
+        dist < lim.three.dist && td.verticalSpeed < lim.three.sinkMs && td.groundSpeed < 0.8 ? 3 : dist < lim.two.dist && td.verticalSpeed < lim.two.sinkMs ? 2 : 1;
+      return pass(stars, `On the ${noun}, ${dist.toFixed(1)} m from the centre, at ${Math.max(0, fpm(td.verticalSpeed))} fpm.`);
+    }
+    if (s.time > 150) return fail(`Out of time. Hover over the ${noun}, then lower the collective slowly.`);
+    if (d > 150) return fail(`Too far from the ${noun}. Small cyclic inputs, and stop each move before it runs away.`);
+    if (s.agl > 40) return fail(`Too high (${ft(s.agl)} ft). Lower the collective (${k.down}) to come down, not up.`);
+    const over = d < Math.min(2, pad.radius * 0.5) && s.groundSpeed < 1;
+    const text = !over
+      ? `The ${noun} is ${relativeTo(s, pad.x, pad.z)}. Move over it with small cyclic inputs, then stop.`
+      : s.verticalSpeed < -1.5
+        ? `Coming down too fast (${fpm(-s.verticalSpeed)} fpm): raise the collective a little (${k.up}).`
+        : s.agl > 3
+          ? `Over the ${noun}. Lower the collective a little (${k.down}) and come straight down, slowly.`
+          : `Nearly down. A touch of collective (${k.up}) to slow the sink, and keep still.`;
+    return { text };
+  });
+}
 
 const SPECS: LevelSpec[] = [
   {
@@ -298,8 +395,181 @@ const SPECS: LevelSpec[] = [
     },
   },
   {
-    id: 'failure',
+    id: 'rings',
     tier: 'intermediate',
+    title: 'Precision flying',
+    teaches: 'Plan each turn and height change early, and fly through the middle of the ring.',
+    config: { ...BASE, altitudeFt: 450, failureDelay: NEVER },
+    target: null,
+    // One left-hand circuit: 260 m legs, 40° more turn at every ring, and a new height each time.
+    gates: withFacing(START, [
+      { x: 0, z: 550, agl: 110, radius: 18 },
+      { x: -167, z: 351, agl: 80, radius: 18 },
+      { x: -423, z: 306, agl: 55, radius: 18 },
+      { x: -648, z: 436, agl: 85, radius: 18 },
+      { x: -737, z: 680, agl: 115, radius: 18 },
+      { x: -648, z: 924, agl: 70, radius: 18 },
+      { x: -423, z: 1054, agl: 95, radius: 18 },
+    ]),
+    makeObjective(world) {
+      const gates = this.gates;
+      const limit = RINGS_TIME_LIMIT;
+      const cross = ringCrossing(world);
+      let next = 0, offsetSum = 0;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const hit = cross(s, gates[next]);
+        if (hit !== null) (offsetSum += hit), next++;
+        if (next === gates.length) {
+          const margin = (limit - s.time) / limit;
+          const centred = offsetSum / gates.length < 0.4;
+          const stars = margin >= 0.2 && centred ? 3 : margin >= 0.1 || centred ? 2 : 1;
+          return { ...pass(stars, `All rings with ${Math.round(limit - s.time)} s to spare!`), nextGate: next };
+        }
+        if (s.time > limit) return fail(`Out of time with ${gates.length - next} ring${gates.length - next === 1 ? '' : 's'} to go. Turn toward the next ring earlier.`);
+        if (s.agl < 15) return fail(`Too low! Raise the collective (${k.up}) to climb.`);
+        const g = gates[next];
+        const dy = gateY(g, world) - s.pos.y;
+        const left = `${Math.ceil(limit - s.time)} s left.`;
+        const text =
+          dy > g.radius * 0.5
+            ? `Ring ${next + 1} of ${gates.length} is higher: raise the collective (${k.up}). ${left}`
+            : dy < -g.radius * 0.5
+              ? `Ring ${next + 1} of ${gates.length} is lower: lower the collective (${k.down}). ${left}`
+              : `Ring ${next + 1} of ${gates.length}: line up early (${k.turn}) and aim for the middle. ${left}`;
+        return { text, progress: next / gates.length, nextGate: next };
+      });
+    },
+  },
+  {
+    id: 'windfield',
+    tier: 'intermediate',
+    title: 'Landing into the wind',
+    teaches: 'Read the windsock, then approach and touch down facing into the wind.',
+    config: { ...POWERED, altitudeFt: 300, airspeedKt: 60, windKt: 12, windFromDeg: 240, start: { x: -380, z: 800, yaw: 0 } },
+    target: null,
+    gates: [],
+    pads: [WIND_CIRCLE],
+    makeObjective() {
+      const pad = WIND_CIRCLE;
+      let td: TouchdownReport | null = null;
+      let angle = 0;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const into = session.config.windFromDeg;
+        const dist = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+        if (!td && session.touchdown) {
+          td = session.touchdown;
+          angle = windAngleDeg(td, session.config.windKt);
+          if (dist > pad.radius) return fail(`Touched down ${Math.round(dist - pad.radius)} m outside the circle. Line up earlier so you arrive over it.`);
+          if (angle > 30) return fail(`Landed ${Math.round(angle)}° off the wind. Point the nose toward ${into}° before you touch down.`);
+          if (td.verticalSpeed > 2.03) return fail(`Hard landing (${fpm(td.verticalSpeed)} fpm). Raise the collective (${k.up}) near the ground to soften it.`);
+          if (td.groundSpeed > 10.3) return fail(`Too fast over the ground (${Math.round(td.groundSpeed * MS_TO_KT)} kt). Into the wind you can slow right down before touchdown.`);
+        }
+        if (td) {
+          if (session.onSkids && s.groundSpeed < 0.5) {
+            const stars = angle < 10 && td.verticalSpeed < 0.76 ? 3 : angle < 20 && td.verticalSpeed < 1.52 ? 2 : 1;
+            return pass(stars, `Landed ${Math.round(angle)}° off the wind at ${Math.max(0, fpm(td.verticalSpeed))} fpm.`);
+          }
+          return { text: `Touchdown! Lower the collective (${k.down}) and let it settle.` };
+        }
+        if (s.time > 180) return fail('Out of time. Line up into the wind and descend onto the circle.');
+        const off = Math.abs(wrapAngle((s.heading - into) * DEG)) / DEG;
+        const text =
+          s.agl > 30 && dist > 400
+            ? `Wind: ${session.config.windKt} kt from ${into}°. Check the windsock beside the meadow and the WIND readout, then plan to land facing ${into}°.`
+            : s.agl > 30
+              ? `Fly a wide circuit around the meadow and line up on a heading of about ${into}°, with the yellow circle ahead.`
+              : off > 30
+                ? `Turn into the wind: nose toward ${into}° (now ${Math.round(s.heading)}°).`
+                : `Lined up into the wind. Come down gently and slow right down; touch down in the yellow circle.`;
+        return { text };
+      });
+    },
+  },
+  {
+    id: 'vtakeoff',
+    tier: 'intermediate',
+    title: 'Vertical takeoff',
+    teaches: 'Lift straight up into a steady hover, then nose forward and climb away.',
+    config: { ...POWERED, altitudeFt: 0, start: { ...VTAKEOFF_SPOT, yaw: 0, settle: 'skids' } },
+    target: null,
+    gates: withFacing(VTAKEOFF_SPOT, [{ x: VTAKEOFF_SPOT.x, z: 230, agl: 35, radius: 20 }]),
+    makeObjective(world) {
+      const gate = this.gates[0];
+      const cross = ringCrossing(world);
+      let steady = 0, hovered = -1, maxDrift = 0, prevSide: number | null = null;
+      return lesson(({ session, mode }, dt) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const kt = s.airspeed * MS_TO_KT;
+        const drift = Math.hypot(s.pos.x - VTAKEOFF_SPOT.x, s.pos.z - VTAKEOFF_SPOT.z);
+        if (session.touchdown) return fail(`Set back down. Keep enough collective (${k.up}) to stay in the hover.`);
+        if (s.time > 120) return fail('Out of time. Lift into a hover, hold it, then fly through the ring.');
+        if (hovered < 0) {
+          maxDrift = Math.max(maxDrift, drift);
+          if (drift > 8) return fail(`Drifted ${Math.round(drift)} m from the spot before the hover was steady. Lift straight up, with tiny cyclic inputs.`);
+          if (s.groundSpeed > 3) return fail('Moved off before the hover was steady. Hover first, then go.');
+          if (s.agl > 9) return fail(`Climbed too high (${ft(s.agl)} ft). Stop in a low hover first, at about 10 ft.`);
+          const ok = !session.onSkids && s.agl > 1.5 && s.agl < 5 && s.groundSpeed < 1 && Math.abs(s.verticalSpeed) < 0.5;
+          steady = ok ? steady + dt : 0;
+          if (steady >= 3) hovered = s.time;
+          const text = session.onSkids
+            ? `Raise the collective slowly (${k.up}) and lift straight up. Keep the skids level, no forward input yet.`
+            : s.agl < 1.5
+              ? `Light on the skids: a little more collective (${k.up}) to about 10 ft.`
+              : s.agl > 5
+                ? `A bit high. Ease the collective down (${k.down}) to about 10 ft.`
+                : `Hold the hover still over the spot${steady > 0 ? '…' : ': stop any drift with small cyclic inputs'}.`;
+          return { text, progress: steady / 3 / 2, nextGate: 0 };
+        }
+        const hit = cross(s, gate);
+        if (hit !== null) {
+          const stars = maxDrift < 2 && hovered < 20 ? 3 : maxDrift < 4 ? 2 : 1;
+          return { ...pass(stars, `Through the ring! The hover drifted ${maxDrift.toFixed(1)} m.`), nextGate: 1 };
+        }
+        const side = (s.pos.z - gate.z) * -1;
+        if (prevSide !== null && prevSide < 0 && side >= 0) return fail('Missed the ring. Climb so you pass through its middle.');
+        prevSide = side;
+        const text =
+          kt < 20
+            ? `Steady hover! Now ease the nose forward (${k.fwd}) to start moving, and keep the height.`
+            : `Flying! Raise the collective (${k.up}) and climb through the ring ahead.`;
+        return { text, progress: 0.5 + Math.min(0.5, kt / 80), nextGate: 0 };
+      });
+    },
+  },
+  {
+    id: 'vlanding',
+    tier: 'intermediate',
+    title: 'Vertical landing',
+    teaches: 'Stop over the spot, then come straight down slowly and touch down without drifting.',
+    config: { ...POWERED, altitudeFt: 40, start: { x: VLANDING_CIRCLE.x, z: VLANDING_CIRCLE.z + 20, yaw: 0, settle: 'hover' } },
+    target: null,
+    gates: [],
+    pads: [VLANDING_CIRCLE],
+    makeObjective() {
+      return padLanding(VLANDING_CIRCLE, 'circle', { maxSinkMs: 1.52, maxDriftMs: 2.6, three: { dist: 3, sinkMs: 0.5 }, two: { dist: 6, sinkMs: 1 } });
+    },
+  },
+  {
+    id: 'heliport',
+    tier: 'intermediate',
+    title: 'Heliport',
+    teaches: 'The same vertical landing, onto a pad only a little wider than the helicopter.',
+    config: { ...POWERED, altitudeFt: 60, start: { x: HELIPORT.x, z: HELIPORT.z + 50, yaw: 0, settle: 'hover' } },
+    target: null,
+    gates: [],
+    pads: [HELIPORT],
+    makeObjective() {
+      return padLanding(HELIPORT, 'pad', { maxSinkMs: 1.52, maxDriftMs: 2, three: { dist: 1.5, sinkMs: 0.5 }, two: { dist: 3, sinkMs: 1 } });
+    },
+  },
+  {
+    id: 'failure',
+    tier: 'emergency',
     title: 'Engine failure!',
     teaches: 'Lower the collective at once and keep rotor RPM in the green.',
     config: { ...BASE, altitudeFt: 3000, failureDelay: 3 },
@@ -335,7 +605,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'glide',
-    tier: 'intermediate',
+    tier: 'emergency',
     title: 'Glide speed',
     teaches: 'Hold 55–70 kt: slower or faster than that, you sink faster.',
     config: { ...BASE, altitudeFt: 2500, airspeedKt: 65, start: { x: 0, z: 1100, yaw: 0, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -369,7 +639,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'field',
-    tier: 'intermediate',
+    tier: 'emergency',
     title: 'Pick a field',
     teaches: 'Choose a field you can reach, glide to it and land.',
     // Facing east: the preselected Rocky Clearing is too far; one T press selects Big Meadow, in reach just right of the nose.
@@ -406,7 +676,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'flare',
-    tier: 'intermediate',
+    tier: 'emergency',
     title: 'The flare',
     teaches: 'Pull back at about 50 ft to stop the sink and slow down.',
     config: { ...BASE, altitudeFt: 300, airspeedKt: 60, start: { ...MEADOW_APPROACH, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -553,8 +823,33 @@ export const tierOf = (def: LevelDef) => TIERS.find((t) => t.id === def.tier)!;
 
 /**
  * Level `index` is open once the one before it has been passed, across tier boundaries.
- * A level that already has stars stays open (older saves predate the newer lessons).
+ * A level that already has stars stays open, and so does one listed in `granted`
+ * (opened under an earlier training layout, see `unlocksFromOldLayouts`).
  */
-export function isUnlocked(index: number, progress: Record<string, number>): boolean {
-  return index === 0 || (progress[LEVELS[index - 1]?.id] ?? 0) > 0 || (progress[LEVELS[index]?.id] ?? 0) > 0;
+export function isUnlocked(index: number, progress: Record<string, number>, granted: readonly string[] = []): boolean {
+  const id = LEVELS[index]?.id;
+  return index === 0 || (progress[LEVELS[index - 1]?.id] ?? 0) > 0 || (progress[id] ?? 0) > 0 || granted.includes(id);
+}
+
+/** Bump when levels move between tiers or change order, and add the old order to OLD_LAYOUTS. */
+export const TRAINING_LAYOUT = 2;
+const OLD_LAYOUTS = [
+  // 1: one flat list of 8.
+  ['basics', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
+  // 2: Beginner / Intermediate / Expert, 11 levels.
+  ['basics', 'hover', 'takeoff', 'landing', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
+];
+
+/**
+ * Levels a save had open under the earlier layouts, so moving levels never locks one a player could already fly.
+ * Saves did not record their layout, so every old order is tried.
+ */
+export function unlocksFromOldLayouts(progress: Record<string, number>): string[] {
+  const open = new Set<string>();
+  for (const order of OLD_LAYOUTS) {
+    order.forEach((id, i) => {
+      if (i === 0 || (progress[order[i - 1]] ?? 0) > 0 || (progress[id] ?? 0) > 0) open.add(id);
+    });
+  }
+  return [...open];
 }

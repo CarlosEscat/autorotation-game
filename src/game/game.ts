@@ -10,7 +10,7 @@ import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
 import { contextualHint } from './hints';
-import { LEVELS, LevelDef, Objective, ObjectiveStatus } from './levels';
+import { LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, unlocksFromOldLayouts } from './levels';
 import { FlightConfig, FlightSession } from './session';
 
 type GameState = 'menu' | 'flying' | 'paused' | 'results';
@@ -22,6 +22,10 @@ interface Saved {
   attempts: number;
   /** Best stars per training level id. */
   training: Record<string, number>;
+  /** Training levels kept open from an earlier layout of the training menu. */
+  unlocked: string[];
+  /** Layout of the training menu this save was last migrated to. */
+  trainingLayout?: number;
   muted: boolean;
 }
 
@@ -35,16 +39,35 @@ interface ActiveLevel {
 }
 
 function load(): Saved {
-  const fallback: Saved = { settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true }, best: null, attempts: 0, training: {}, muted: false };
+  const fallback: Saved = {
+    settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true },
+    best: null,
+    attempts: 0,
+    training: {},
+    unlocked: [],
+    trainingLayout: TRAINING_LAYOUT,
+    muted: false,
+  };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<Saved>;
     // Older saves predate newer settings (e.g. difficulty): fill them from the defaults.
-    return { ...fallback, ...parsed, settings: { ...fallback.settings, ...parsed.settings } };
+    // The layout comes from the save alone: one without it predates the migration.
+    const saved = { ...fallback, ...parsed, settings: { ...fallback.settings, ...parsed.settings }, trainingLayout: parsed.trainingLayout };
+    return migrateTraining(saved);
   } catch {
     return fallback;
   }
+}
+
+/** Stars are kept by level id, so they survive any move; levels that were open stay open. */
+function migrateTraining(s: Saved): Saved {
+  if (s.trainingLayout === TRAINING_LAYOUT) return s;
+  const unlocked = [...new Set([...(s.unlocked ?? []), ...unlocksFromOldLayouts(s.training ?? {})])];
+  const out = { ...s, unlocked, trainingLayout: TRAINING_LAYOUT };
+  save(out);
+  return out;
 }
 
 function save(s: Saved) {
@@ -184,6 +207,7 @@ export class Game {
     const objective = def.makeObjective(this.world);
     const target = def.target === null ? null : this.world.areas.findIndex((a) => a.id === def.target);
     this.launch(def.config, target);
+    this.renderer.setPads(def.pads ?? []);
     const status = objective.update(this.levelContext(), 0);
     this.level = { index, def, objective, status, endIn: null };
   }
@@ -207,6 +231,7 @@ export class Game {
     this.targetIndex = targetIndex;
     this.renderer.setTarget(targetIndex === null ? null : this.world.areas[targetIndex]);
     this.renderer.setGates([], 0);
+    this.renderer.setPads([]);
     this.renderer.setWind(cfg.windFromDeg, cfg.windKt);
     this.renderer.setMode('cockpit');
     this.screens.show(null);
@@ -233,7 +258,7 @@ export class Game {
 
   private toTraining() {
     this.toMenu();
-    this.screens.showTraining(this.saved.training);
+    this.screens.showTraining(this.saved.training, this.saved.unlocked);
   }
 
   private toBriefing(index: number) {
