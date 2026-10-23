@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FlightConfig, FlightSession } from '../src/game/session';
-import { LAKE_RUN, LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, lakeRunStars, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
+import { LAKE_RUN, LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, lakeRunStars, lessonStates, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
 import { TouchdownReport } from '../src/game/landing';
 import { createWorld } from '../src/world/world';
 import { ControlInputs, HelicopterState, neutralControls } from '../src/sim/state';
@@ -186,20 +186,36 @@ describe('training levels', () => {
 
   it('unlocking runs in order across tiers; a level with stars stays open', () => {
     const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
+    const upTo = (id: string) => Object.fromEntries(LEVELS.slice(0, at(id) + 1).map((l) => [l.id, 1]));
     expect(isUnlocked(0, {})).toBe(true);
     expect(isUnlocked(1, {})).toBe(false);
     expect(isUnlocked(1, { basics: 1 })).toBe(true);
     expect(isUnlocked(at('rings'), { basics: 3, hover: 2, takeoff: 1 })).toBe(false);
-    expect(isUnlocked(at('rings'), { landing: 1 })).toBe(true);
-    expect(isUnlocked(at('failure'), { landing: 1 })).toBe(false);
-    expect(isUnlocked(at('lakerun'), { heliport: 1 })).toBe(true);
-    expect(isUnlocked(at('failure'), { heliport: 1 })).toBe(false);
-    expect(isUnlocked(at('failure'), { confined: 1 })).toBe(true);
-    expect(isUnlocked(at('cushion'), { flare: 1 })).toBe(true);
-    expect(isUnlocked(at('checkride'), { wind: 1 })).toBe(true);
+    expect(isUnlocked(at('rings'), upTo('landing'))).toBe(true);
+    expect(isUnlocked(at('failure'), upTo('landing'))).toBe(false);
+    expect(isUnlocked(at('lakerun'), upTo('heliport'))).toBe(true);
+    expect(isUnlocked(at('failure'), upTo('heliport'))).toBe(false);
+    expect(isUnlocked(at('failure'), upTo('confined'))).toBe(true);
+    expect(isUnlocked(at('checkride'), upTo('wind'))).toBe(true);
+    // Passing a later level alone does not open the one after it: the path has one Next up.
+    expect(isUnlocked(at('rings'), { landing: 1 })).toBe(false);
     expect(isUnlocked(at('failure'), {}, ['failure'])).toBe(true);
     // An older save that passed the old level 2 keeps it open.
     expect(isUnlocked(at('failure'), { basics: 3, failure: 2 })).toBe(true);
+  });
+
+  it('lesson states: passed before Next up, exactly one Next up, locked after', () => {
+    const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
+    const st = lessonStates({ basics: 3, hover: 1, field: 2 }, ['rings']);
+    expect(st[0]).toBe('passed');
+    expect(st[at('takeoff')]).toBe('next');
+    expect(st.filter((s) => s === 'next')).toHaveLength(1);
+    expect(st[at('landing')]).toBe('locked');
+    expect(st[at('rings')]).toBe('open');
+    expect(st[at('field')]).toBe('passed');
+    expect(lessonStates({}).slice(1).every((s) => s === 'locked')).toBe(true);
+    const all = Object.fromEntries(LEVELS.map((l) => [l.id, 1]));
+    expect(lessonStates(all).every((s) => s === 'passed')).toBe(true);
   });
 
   it('migration: levels open under an older layout stay open, stars are untouched', () => {

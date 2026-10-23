@@ -5,11 +5,10 @@ import { attachKeyboard } from '../input/keyboard';
 import { TouchControls, attachLook } from '../input/touch';
 import { GameRenderer } from '../render/renderer';
 import { RPM } from '../sim/aircraft';
-import { Screens, Settings, configFromSettings } from '../ui/screens';
+import { DEFAULT_SETTINGS, Screens, Settings, configFromSettings, normalizeSettings } from '../ui/screens';
 import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
-import { contextualHint } from './hints';
 import { LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, unlocksFromOldLayouts } from './levels';
 import { FlightConfig, FlightSession } from './session';
 
@@ -17,9 +16,8 @@ type GameState = 'menu' | 'flying' | 'paused' | 'results';
 
 const STORAGE_KEY = 'autorotation.v1';
 interface Saved {
+  /** Last Free flight choices, plus the coaching-hints switch. */
   settings: Settings;
-  best: number | null;
-  attempts: number;
   /** Best stars per training level id. */
   training: Record<string, number>;
   /** Training levels kept open from an earlier layout of the training menu. */
@@ -47,9 +45,7 @@ function countdown(timeLeft: number | undefined): string {
 
 function load(): Saved {
   const fallback: Saved = {
-    settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true },
-    best: null,
-    attempts: 0,
+    settings: { ...DEFAULT_SETTINGS },
     training: {},
     unlocked: [],
     trainingLayout: TRAINING_LAYOUT,
@@ -59,9 +55,9 @@ function load(): Saved {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<Saved>;
-    // Older saves predate newer settings (e.g. difficulty): fill them from the defaults.
+    // Older saves predate newer settings or offered other choices (70 kt, 8 kt wind): snap them onto today's.
     // The layout comes from the save alone: one without it predates the migration.
-    const saved = { ...fallback, ...parsed, settings: { ...fallback.settings, ...parsed.settings }, trainingLayout: parsed.trainingLayout };
+    const saved = { ...fallback, ...parsed, settings: normalizeSettings(parsed.settings), trainingLayout: parsed.trainingLayout };
     return migrateTraining(saved);
   } catch {
     return fallback;
@@ -113,13 +109,12 @@ export class Game {
     this.hud = new Hud(root);
     this.touch = new TouchControls(root, this.input);
     this.screens = new Screens(root, this.saved.settings, {
-      onStart: (s) => this.startFlight(s),
       onFreeFlight: (s) => this.startFreeFlight(s),
-      onTutorial: (s) => {
-        this.saved.settings = s;
-        this.screens.show('tutorial');
+      onHints: (on) => {
+        this.saved.settings.hints = on;
+        save(this.saved);
+        this.screens.setHints(on);
       },
-      onTutorialStart: () => this.startFlight(this.saved.settings),
       onResume: () => this.resume(),
       onRestart: () => this.restart(),
       onMenu: () => this.toMenu(),
@@ -190,20 +185,12 @@ export class Game {
     this.touch.setMuted(this.saved.muted);
   }
 
-  private startFlight(settings: Settings) {
-    this.saved.settings = settings;
-    save(this.saved);
-    this.level = null;
-    this.free = false;
-    this.launch(configFromSettings(settings), 0);
-  }
-
   private startFreeFlight(settings: Settings) {
     this.saved.settings = settings;
     save(this.saved);
     this.level = null;
     this.free = true;
-    this.launch({ ...configFromSettings(settings), failureDelay: 1e9, freeFlight: true }, null);
+    this.launch({ ...configFromSettings(settings), freeFlight: true }, null);
   }
 
   private startLevel(index: number) {
@@ -221,8 +208,7 @@ export class Game {
 
   private restart() {
     if (this.level) this.startLevel(this.level.index);
-    else if (this.free) this.startFreeFlight(this.saved.settings);
-    else this.startFlight(this.saved.settings);
+    else this.startFreeFlight(this.saved.settings);
   }
 
   private levelContext() {
@@ -282,7 +268,8 @@ export class Game {
     this.hud.setVisible(false);
     this.touch.setVisible(false);
     document.body.classList.remove('flying');
-    this.screens.setBest(this.saved.best, this.saved.attempts);
+    // New players are steered to Training; once a lesson is passed, Free flight takes the lead.
+    this.screens.setHero(Object.values(this.saved.training).some((n) => n > 0) ? 'free' : 'training');
     this.screens.show('menu');
     this.audio.suspend();
   }
@@ -322,16 +309,16 @@ export class Game {
       const engineOut = !s.engineRunning;
       this.lowGTimer = Math.max(0, this.lowGTimer - dt);
       const l = this.level;
-      const hint = !l && !this.free && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
+      // Free flight never loses the engine, so its only coaching is the opening cue.
       const lesson =
         l && this.state === 'flying'
           ? { title: `${l.def.label} · ${l.def.title}${countdown(l.status.timeLeft)}`, text: l.status.text, progress: l.status.progress }
-          : this.free && this.state === 'flying' && s.time < 8
+          : this.free && this.saved.settings.hints && this.state === 'flying' && s.time < 8
             ? { title: 'Fly around', text: 'The engine will not fail. Explore, land anywhere and take off again.', progress: null }
             : null;
       this.hud.setLesson(lesson);
       this.hud.update(
-        { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint, lowG: this.lowGTimer > 0 },
+        { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint: null, lowG: this.lowGTimer > 0 },
         dt,
       );
       this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000);
@@ -362,7 +349,6 @@ export class Game {
           break;
         case 'stopped':
           if (this.free) this.finishFreeFlight(session);
-          else if (!this.level) this.finish(session);
           break;
       }
     }
@@ -387,21 +373,6 @@ export class Game {
     this.touch.setVisible(false);
     setTimeout(() => {
       if (this.state === 'results') this.screens.showFreeFlightCrash(session.crashReason);
-    }, 700);
-  }
-
-  private finish(session: FlightSession) {
-    const r = session.result!;
-    const prev = this.saved.best;
-    this.saved.attempts += 1;
-    const isNewBest = prev === null || r.score.total > prev;
-    if (isNewBest) this.saved.best = r.score.total;
-    save(this.saved);
-    this.state = 'results';
-    this.touch.setVisible(false);
-    // Let the scene breathe for a moment before the debrief appears.
-    setTimeout(() => {
-      if (this.state === 'results') this.screens.showResults(r, this.saved.best ?? r.score.total, isNewBest && prev !== null);
     }, 700);
   }
 }

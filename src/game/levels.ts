@@ -65,10 +65,10 @@ export interface TierDef {
 }
 
 export const TIERS: TierDef[] = [
-  { id: 'beginner', title: 'Beginner', blurb: 'Learn to fly: engine running, no emergencies.' },
-  { id: 'intermediate', title: 'Intermediate', blurb: 'Precision flying: wind, tight spots and no mistakes.' },
-  { id: 'expert', title: 'Expert', blurb: 'Fast, low and tight: a timed valley course and a confined-area landing.' },
-  { id: 'emergency', title: 'Emergency', blurb: 'The engine quits: save the rotor, glide, flare and land it by hand.' },
+  { id: 'beginner', title: 'Beginner', blurb: 'Airfield basics: fly, hover, take off and land.' },
+  { id: 'intermediate', title: 'Intermediate', blurb: 'Open fields and shrinking landing zones, engine running.' },
+  { id: 'expert', title: 'Expert', blurb: 'Valley runs and tight spots. Fun first, still scored.' },
+  { id: 'emergency', title: 'Emergency', blurb: 'The full autorotation sequence, ending in the checkride.' },
 ];
 
 /** A level as written below; its place in the menu (`num`, `label`) is worked out from its tier. */
@@ -668,7 +668,7 @@ const SPECS: LevelSpec[] = [
   {
     id: 'confined',
     tier: 'expert',
-    title: 'Confined-area landing',
+    title: 'Confined area',
     teaches: 'Look the spot over from above, come in steeply over the trees, then straight down between them.',
     config: { ...POWERED, altitudeFt: 250, airspeedKt: 40, start: { x: 640, z: 470, yaw: Math.PI / 2 } },
     target: null,
@@ -962,14 +962,19 @@ export const LEVELS: LevelDef[] = TIERS.flatMap((t) =>
 export const tierOf = (def: LevelDef) => TIERS.find((t) => t.id === def.tier)!;
 
 /**
- * Level `index` is open once the one before it has been passed, across tier boundaries.
- * A level that already has stars stays open, and so does one listed in `granted`
- * (opened under an earlier training layout, see `unlocksFromOldLayouts`).
+ * Where each level stands on the one training path, across tier boundaries:
+ * a level with stars is passed, the first one without stars is next, and the rest are locked
+ * unless they were opened under an earlier training layout (`granted`, see `unlocksFromOldLayouts`).
  */
-export function isUnlocked(index: number, progress: Record<string, number>, granted: readonly string[] = []): boolean {
-  const id = LEVELS[index]?.id;
-  return index === 0 || (progress[LEVELS[index - 1]?.id] ?? 0) > 0 || (progress[id] ?? 0) > 0 || granted.includes(id);
+export type LessonState = 'passed' | 'next' | 'open' | 'locked';
+
+export function lessonStates(progress: Record<string, number>, granted: readonly string[] = []): LessonState[] {
+  const next = LEVELS.findIndex((l) => !((progress[l.id] ?? 0) > 0));
+  return LEVELS.map((l, i) => ((progress[l.id] ?? 0) > 0 ? 'passed' : i === next ? 'next' : granted.includes(l.id) ? 'open' : 'locked'));
 }
+
+export const isUnlocked = (index: number, progress: Record<string, number>, granted: readonly string[] = []) =>
+  lessonStates(progress, granted)[index] !== 'locked';
 
 /** Bump when levels move between tiers or change order, and add the old order to OLD_LAYOUTS. */
 export const TRAINING_LAYOUT = 3;
