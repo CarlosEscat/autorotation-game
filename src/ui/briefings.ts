@@ -184,6 +184,44 @@ const HELIPORT = svg(
     text(250, 100, 'dead centre', GREEN, 'start'),
 );
 
+/** Top-down course: rings 1–9, a treetop stretch and a lake with the pad in the middle. */
+const LAKE_RUN = svg(
+  `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
+    `<ellipse cx="236" cy="96" rx="62" ry="44" style="fill:#3d7fd0;stroke:none" opacity="0.35"/>` +
+    [[150, 18], [168, 16], [186, 20], [204, 17], [222, 19], [240, 16]]
+      .map(([x, y]) => `<circle cx="${x}" cy="${y}" r="6" style="fill:${GREEN};stroke:none" opacity="0.5"/>`)
+      .join('') +
+    `<path d="M30 150 C 30 120, 70 120, 64 96 S 100 60, 120 50 S 150 18, 200 18 S 290 30, 284 74 S 280 120, 236 96" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    [[64, 96, 2], [120, 50, 4], [160, 18, 6], [284, 74, 8]]
+      .map(([x, y, n]) => `<circle cx="${x}" cy="${y}" r="6" style="stroke:${ACC}" stroke-width="3"/>` + text(x - 14, y + 4, String(n), ACC))
+      .join('') +
+    `<rect x="228" y="88" width="16" height="16" style="fill:#3a3f4a;stroke:${ACC}" stroke-width="2"/>` +
+    text(236, 100, 'H', INK) +
+    heliTop(30, 140, 0) +
+    `<rect x="250" y="126" width="62" height="24" rx="5" style="stroke:${RED}" stroke-width="2"/>` +
+    text(281, 142, '⏱ 2:30', RED) +
+    text(200, 36, 'treetops', GREEN, 'middle', 600) +
+    text(236, 126, 'land here', ACC),
+);
+
+/** Side view: tree walls either side of the spot, a high hover, then straight down between them. */
+const CONFINED = svg(
+  ground() +
+    [86, 104, 216, 234]
+      .map((x) => `<path d="M${x} ${GROUND} V${GROUND - 14}" style="stroke:${INK}" stroke-width="2" opacity="0.6"/><ellipse cx="${x}" cy="${GROUND - 34}" rx="10" ry="24" style="fill:${GREEN};stroke:none" opacity="0.55"/>`)
+      .join('') +
+    pad(160, GROUND, 26) +
+    `<path d="M20 30 Q 120 24 150 40" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    heli(24, 30, -3) +
+    text(54, 16, '1 STEEP IN', ACC) +
+    heli(160, 46, 0, ACC) +
+    text(160, 24, '2 HOVER ABOVE', ACC) +
+    arrow(160, 62, 160, 120, GREEN) +
+    text(250, 60, '3 STRAIGHT', GREEN, 'start') +
+    text(250, 72, 'DOWN', GREEN, 'start') +
+    text(160, 156, 'trees both sides · no drift', INK, 'middle', 600),
+);
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -388,6 +426,26 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Touch down on the pad, slower than 300 fpm, drifting less than 4 kt. Within 1.5 m of the centre and very soft earns three stars.',
     diagram: HELIPORT,
+  },
+  lakerun: {
+    goal: 'A timed run down the valley: nine rings with tight bends, a low pass over the treetops and the water, then a landing on the helipad in the middle of the lake.',
+    steps: (k) => [
+      `Keep a flowing line at about 55–65 kt. Start each bend early (<b>${k.turn}</b>) and roll out lined up with the next ring.`,
+      `Rings 6 and 7 skim the treetops, 8 and 9 the lake. Ease down (<b>${k.down}</b>) and hold the height: no climbing, no dipping.`,
+      `After the last ring, slow down (<b>${k.aft}</b>) in good time, stop over the H and lower the collective gently (<b>${k.down}</b>). Out on the water, drift is easy to miss.`,
+    ],
+    pass: 'Land on the helipad before the 2:30 countdown runs out. One star for landing in time, one for flying through all nine rings, one for touching down within 1:35 of the start. A missed ring costs only its star, so keep going.',
+    diagram: LAKE_RUN,
+  },
+  confined: {
+    goal: 'Land on the farm strip between two walls of tall trees: a confined area with no room for drift.',
+    steps: (k) => [
+      'Fly over the strip high enough to clear the trees and look at it: where the trees are, where the yellow circle is.',
+      `Come in steeply and slowly (<b>${k.aft}</b>), and stop in a hover above the treetops, right over the circle.`,
+      `Come straight down (<b>${k.down}</b>) between the trees, correcting any drift early. Cushion the last few feet (<b>${k.up}</b>).`,
+    ],
+    pass: 'Touch down inside the circle, slower than 300 fpm, drifting less than 5 kt, without touching a tree. Within 2 m of the centre and very soft earns three stars.',
+    diagram: CONFINED,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',

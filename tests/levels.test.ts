@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FlightConfig, FlightSession } from '../src/game/session';
-import { LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
+import { LAKE_RUN, LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, lakeRunStars, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
 import { TouchdownReport } from '../src/game/landing';
 import { createWorld } from '../src/world/world';
 import { ControlInputs, HelicopterState, neutralControls } from '../src/sim/state';
@@ -9,6 +9,7 @@ import { BotOptions, makeBot } from './pilotBot';
 import { LandingTechnique, flyLanding } from './landingPilot';
 
 const world = createWorld();
+const LAKE_START = { x: 0, z: 1100 };
 const level = (id: string) => LEVELS.find((l) => l.id === id)!;
 
 type Pilot = (s: HelicopterState, c: ControlInputs, session: FlightSession, nextGate: number, st: ObjectiveStatus) => void;
@@ -63,6 +64,12 @@ function hoverAt(s: HelicopterState, c: ControlInputs, trim: number, x: number, 
   c.cyclicRoll = clamp(Math.atan(aR / 9.81) / (35 * DEG), -0.25, 0.25);
   c.pedal = clamp(wrapAngle((headingDeg - s.heading) * DEG) / DEG / 20, -1, 1);
 }
+
+/** Collective that holds a hover in still air, OGE (the hover lessons' own trim, measured). */
+const trimmedHover = (session: FlightSession) => {
+  const probe = new FlightSession(world, { ...level('vlanding').config, windKt: session.config.windKt });
+  return probe.state.collective;
+};
 
 describe('training levels', () => {
   it('basics: flying through the gates passes', () => {
@@ -185,8 +192,11 @@ describe('training levels', () => {
     expect(isUnlocked(at('rings'), { basics: 3, hover: 2, takeoff: 1 })).toBe(false);
     expect(isUnlocked(at('rings'), { landing: 1 })).toBe(true);
     expect(isUnlocked(at('failure'), { landing: 1 })).toBe(false);
-    expect(isUnlocked(at('failure'), { heliport: 1 })).toBe(true);
+    expect(isUnlocked(at('lakerun'), { heliport: 1 })).toBe(true);
+    expect(isUnlocked(at('failure'), { heliport: 1 })).toBe(false);
+    expect(isUnlocked(at('failure'), { confined: 1 })).toBe(true);
     expect(isUnlocked(at('cushion'), { flare: 1 })).toBe(true);
+    expect(isUnlocked(at('checkride'), { wind: 1 })).toBe(true);
     expect(isUnlocked(at('failure'), {}, ['failure'])).toBe(true);
     // An older save that passed the old level 2 keeps it open.
     expect(isUnlocked(at('failure'), { basics: 3, failure: 2 })).toBe(true);
@@ -209,20 +219,39 @@ describe('training levels', () => {
     expect(unlocksFromOldLayouts({})).toEqual(['basics']);
   });
 
-  it('tiers: beginner, intermediate, emergency, expert in order, numbered within each tier', () => {
-    expect(TIERS.map((t) => t.id)).toEqual(['beginner', 'intermediate', 'emergency', 'expert']);
+  it('migration: a save from the 16-level layout keeps Emergency open past the new Expert tier', () => {
+    const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
+    // Finished Intermediate when Emergency came next; Expert now sits in between.
+    const intermediateDone = { basics: 3, hover: 3, takeoff: 3, landing: 3, rings: 2, windfield: 2, vtakeoff: 2, vlanding: 3, heliport: 2 };
+    const granted = unlocksFromOldLayouts(intermediateDone);
+    expect(isUnlocked(at('lakerun'), intermediateDone, granted)).toBe(true);
+    expect(isUnlocked(at('confined'), intermediateDone, granted)).toBe(false);
+    expect(isUnlocked(at('failure'), intermediateDone, granted)).toBe(true);
+    // Mid-way through the old Expert tier: its levels stay open in Emergency.
+    const oldExpert = { ...intermediateDone, failure: 3, glide: 3, field: 2, flare: 2, cushion: 1 };
+    expect(isUnlocked(at('wind'), oldExpert, unlocksFromOldLayouts(oldExpert))).toBe(true);
+  });
+
+  it('tiers: beginner, intermediate, expert, emergency in order, numbered within each tier', () => {
+    expect(TIERS.map((t) => t.id)).toEqual(['beginner', 'intermediate', 'expert', 'emergency']);
     expect(LEVELS.map((l) => l.id)).toEqual([
       'basics', 'hover', 'takeoff', 'landing',
       'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
-      'failure', 'glide', 'field', 'flare',
-      'cushion', 'wind', 'checkride',
+      'lakerun', 'confined',
+      'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
     ]);
     expect(LEVELS.map((l) => l.label)).toEqual([
       'Beginner 1', 'Beginner 2', 'Beginner 3', 'Beginner 4',
       'Intermediate 1', 'Intermediate 2', 'Intermediate 3', 'Intermediate 4', 'Intermediate 5',
-      'Emergency 1', 'Emergency 2', 'Emergency 3', 'Emergency 4',
-      'Expert 1', 'Expert 2', 'Expert 3',
+      'Expert 1', 'Expert 2',
+      'Emergency 1', 'Emergency 2', 'Emergency 3', 'Emergency 4', 'Emergency 5', 'Emergency 6', 'Emergency 7',
     ]);
+  });
+
+  it('moved levels keep their gameplay: same config as before the move', () => {
+    expect(level('cushion').config).toMatchObject({ cushion: false, leniency: 2, altitudeFt: 200 });
+    expect(level('wind').config).toMatchObject({ windKt: 15, windFromDeg: 330 });
+    expect(level('checkride').config).toMatchObject({ difficulty: 'normal', windKt: 8 });
   });
 
   describe('beginner lessons', () => {
@@ -387,12 +416,6 @@ describe('training levels', () => {
       };
     };
 
-    /** Collective that holds a hover in still air, OGE (the hover lessons' own trim, measured). */
-    const trimmedHover = (session: FlightSession) => {
-      const probe = new FlightSession(world, { ...def('vlanding').config, windKt: session.config.windKt });
-      return probe.state.collective;
-    };
-
     it('landing into the wind: a careful into-wind approach lands in the circle', () => {
       const { st, session } = runLevel('windfield', windPilot());
       expect(st.state).toBe('passed');
@@ -473,6 +496,152 @@ describe('training levels', () => {
     it('heliport is a smaller target than the vertical landing circle', () => {
       expect(def('heliport').pads![0].radius).toBeLessThan(def('vlanding').pads![0].radius / 2);
       expect(def('heliport').pads![0].kind).toBe('heliport');
+    });
+  });
+
+  describe('expert lessons', () => {
+    const def = (id: string) => level(id);
+    const deck = world.areas.find((a) => a.id === 'helipad')!;
+    /** Height above the ground or, over the lake, above the water. */
+    const clearance = (s: HelicopterState) => s.pos.y - 1.25 - Math.max(world.heightAt(s.pos.x, s.pos.z), world.waterLevel);
+
+    /**
+     * The course at 55 kt, steering like the Precision flying pilot and climbing or sinking toward each ring, then
+     * a decelerating approach to the deck and a slow vertical descent onto it. `skip` rings are flown around.
+     */
+    const lakeRunPilot = (skip: number[] = []): Pilot => {
+      const gates = def('lakerun').gates;
+      let trim = Number.NaN, hoverTrim = Number.NaN, prevYaw = Number.NaN;
+      return (s, c, session, next) => {
+        if (Number.isNaN(trim)) (trim = c.collective), (prevYaw = s.yaw), (hoverTrim = trimmedHover(session));
+        if (session.onSkids) return void ((c.collective = 0), (c.cyclicRoll = 0), (c.pedal = 0));
+        const rate = wrapAngle(s.yaw - prevYaw) * 120;
+        prevYaw = s.yaw;
+        if (next < gates.length) {
+          const g = gates[next];
+          const aimY = gateY(g, world) + (skip.includes(next) ? g.radius * 2 : 0);
+          c.collective = clamp(trim + (clamp((aimY - s.pos.y) * 0.4, -5, 5) - s.vel.y) * 0.03, 0, 1);
+          const err = wrapAngle(Math.atan2(-(g.x - s.pos.x), -(g.z - s.pos.z)) - s.yaw);
+          c.cyclicRoll = clamp(-(2 * err - rate), -1, 1);
+          c.cyclicPitch = clamp(((s.airspeed * 1.943844 - 55) * 0.3 * DEG - s.pitchCmd) * 4, -1, 1);
+          c.pedal = 0;
+          return;
+        }
+        const d = Math.hypot(s.pos.x - deck.cx, s.pos.z - deck.cz);
+        if (d < 50) {
+          const over = d < 1.5 && s.groundSpeed < 0.6;
+          // Off the deck, s.agl is measured to the lake bed: hold 6 m above the water instead.
+          return hoverAt(s, c, hoverTrim, deck.cx, deck.cz, s.heading, 6 + s.agl - clearance(s), over ? (s.agl > 2 ? 0.8 : 0.3) : undefined);
+        }
+        const err = wrapAngle(Math.atan2(-(deck.cx - s.pos.x), -(deck.cz - s.pos.z)) - s.yaw);
+        c.cyclicRoll = clamp(-(1.5 * err - rate * 0.5), -0.7, 0.7);
+        c.pedal = 0;
+        const kt = s.groundSpeed * 1.943844;
+        c.cyclicPitch = clamp((clamp((kt - clamp(d / 5, 5, 60)) * DEG, -6 * DEG, 15 * DEG) - s.pitchCmd) * 4, -1, 1);
+        c.collective = clamp(hoverTrim + (clamp(d / 15, 8, 20) - clearance(s)) * 0.01 - s.vel.y * 0.05, 0, 1);
+      };
+    };
+
+    it('lake run: a steady run through every ring lands on the pad', () => {
+      const { st, session } = runLevel('lakerun', lakeRunPilot());
+      expect(st.state).toBe('passed');
+      expect(st.text).toMatch(/all rings/);
+      // Careful (55 kt and a slow hover-taxi to the pad): landed and all rings, but not fast enough for the third star.
+      expect(session.state.time).toBeGreaterThan(LAKE_RUN.fastS);
+      expect(st.stars).toBe(2);
+      expect(session.touchdown!.area?.id).toBe('helipad');
+      expect(session.crashed).toBe(false);
+    });
+
+    it('lake run: a missed ring costs one star but the run goes on', () => {
+      const { st } = runLevel('lakerun', lakeRunPilot([2]));
+      expect(st.state).toBe('passed');
+      expect(st.stars).toBe(1);
+      expect(st.text).toMatch(/8 of 9 rings/);
+    });
+
+    it('lake run stars: one for landing in time, one for every ring, one for a fast finish of the whole course', () => {
+      expect(lakeRunStars({ hits: 9, flown: 9, rings: 9, time: 90 })).toBe(3);
+      expect(lakeRunStars({ hits: 9, flown: 9, rings: 9, time: 120 })).toBe(2);
+      expect(lakeRunStars({ hits: 8, flown: 9, rings: 9, time: 90 })).toBe(2);
+      expect(lakeRunStars({ hits: 8, flown: 9, rings: 9, time: 120 })).toBe(1);
+      // Cutting the course short never earns the speed star.
+      expect(lakeRunStars({ hits: 5, flown: 5, rings: 9, time: 60 })).toBe(1);
+    });
+
+    it('lake run: the countdown runs out and the level fails; a restart starts the clock again', () => {
+      const hold: Pilot = (s, c) => hoverAt(s, c, c.collective, LAKE_START.x, LAKE_START.z, 0, 60);
+      const { st, session } = runLevel('lakerun', hold);
+      expect(st.state).toBe('failed');
+      expect(st.reason).toMatch(/Out of time/);
+      expect(session.state.time).toBeCloseTo(LAKE_RUN.limitS, 0);
+      // Restart = a new session and a new objective, as the game does on Retry.
+      const again = def('lakerun').makeObjective(world);
+      const fresh = new FlightSession(world, def('lakerun').config);
+      const first = again.update({ session: fresh, targetId: null, mode: 'keyboard' }, 0);
+      expect(first.state).toBe('running');
+      expect(first.timeLeft).toBe(LAKE_RUN.limitS);
+    });
+
+    it('lake run: the countdown is reported while flying', () => {
+      const texts: number[] = [];
+      runLevel('lakerun', (s, c, _session, _n, st) => {
+        texts.push(st.timeLeft!);
+        lakeRunPilot()(s, c, _session, _n, st);
+      });
+      expect(texts[0]).toBe(LAKE_RUN.limitS);
+      expect(texts.every((t, i) => i === 0 || t <= texts[i - 1])).toBe(true);
+    });
+
+    it('lake run: rings are tighter than Precision flying and two of them sit low over the water', () => {
+      const gates = def('lakerun').gates;
+      expect(gates.length).toBeGreaterThan(def('rings').gates.length);
+      for (const g of gates) expect(g.radius).toBeLessThan(def('rings').gates[0].radius);
+      // The last two sit low over the lake.
+      for (const g of gates.slice(-2)) expect(gateY(g, world) - world.waterLevel).toBeLessThan(16);
+      for (const g of gates.slice(-2)) expect(world.surfaceAt(g.x, g.z)).toBe('water');
+      // Bends: the sharpest turn between legs is well over Precision flying's 40°.
+      const turns = gates.slice(1).map((g, i) => Math.abs(wrapAngle(g.facing! - gates[i].facing!)) / DEG);
+      expect(Math.max(...turns)).toBeGreaterThan(60);
+    });
+
+    /** Climb-out over the trees, a slow transit to a hover 30 m over the spot, then straight down. */
+    const confinedPilot = (offset = 0): Pilot => {
+      const pad = def('confined').pads![0];
+      const x = pad.x + offset;
+      let trim = Number.NaN;
+      return (s, c, session) => {
+        if (Number.isNaN(trim)) trim = trimmedHover(session);
+        if (session.onSkids) return void (c.collective = 0);
+        const over = Math.hypot(s.pos.x - x, s.pos.z - pad.z) < 1 && s.groundSpeed < 0.5;
+        hoverAt(s, c, trim, x, pad.z, 270, 30, over ? (s.agl > 4 ? 1 : 0.3) : undefined);
+      };
+    };
+
+    it('confined area: a hover above the trees and a straight descent lands on the spot', () => {
+      const { st, session } = runLevel('confined', confinedPilot());
+      const pad = def('confined').pads![0];
+      expect(st.state).toBe('passed');
+      expect(st.stars).toBeGreaterThanOrEqual(2);
+      expect(Math.hypot(session.state.pos.x - pad.x, session.state.pos.z - pad.z)).toBeLessThan(pad.radius);
+      expect(session.crashed).toBe(false);
+    });
+
+    it('confined area: the spot really is hemmed in by tall trees', () => {
+      const pad = def('confined').pads![0];
+      const trees = world.obstaclesNear(pad.x, pad.z, 30).filter((o) => o.kind === 'tree' && o.height > 13);
+      expect(trees.some((t) => t.x < pad.x)).toBe(true);
+      expect(trees.some((t) => t.x > pad.x)).toBe(true);
+    });
+
+    it('confined area: coming down beside the trees strikes one and fails', () => {
+      const { st } = runLevel('confined', confinedPilot(16));
+      expect(st.state).toBe('failed');
+    });
+
+    it('confined area: dropping in from the start fails', () => {
+      const { st } = runLevel('confined', (_s, c) => void (c.collective = 0.2));
+      expect(st.state).toBe('failed');
     });
   });
 });

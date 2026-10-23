@@ -38,6 +38,13 @@ interface ActiveLevel {
   endIn: number | null;
 }
 
+/** " · ⏱ 1:05" for a timed level, otherwise nothing. */
+function countdown(timeLeft: number | undefined): string {
+  if (timeLeft === undefined) return '';
+  const t = Math.ceil(timeLeft);
+  return ` · ⏱ ${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+
 function load(): Saved {
   const fallback: Saved = {
     settings: { difficulty: 'easy', altitudeFt: 1000, airspeedKt: 70, wind: 'light', hints: true },
@@ -318,7 +325,7 @@ export class Game {
       const hint = !l && !this.free && this.saved.settings.hints && this.state === 'flying' ? contextualHint(session, guidance, this.input.mode) : null;
       const lesson =
         l && this.state === 'flying'
-          ? { title: `${l.def.label} · ${l.def.title}`, text: l.status.text, progress: l.status.progress }
+          ? { title: `${l.def.label} · ${l.def.title}${countdown(l.status.timeLeft)}`, text: l.status.text, progress: l.status.progress }
           : this.free && this.state === 'flying' && s.time < 8
             ? { title: 'Fly around', text: 'The engine will not fail. Explore, land anywhere and take off again.', progress: null }
             : null;

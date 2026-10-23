@@ -1,6 +1,6 @@
 import { MS_TO_FPM, MS_TO_KT, M_TO_FT } from '../sim/aircraft';
 import { DEG, wrapAngle } from '../sim/vec';
-import { World } from '../world/world';
+import { LAKE, World } from '../world/world';
 import { computeGuidance } from './guidance';
 import { KEY_WORDS, Mode } from './hints';
 import { TouchdownReport } from './landing';
@@ -20,6 +20,8 @@ export interface ObjectiveStatus {
   reason: string | null;
   /** Index of the next gate to fly through (gate levels only). */
   nextGate?: number;
+  /** Seconds left on a timed level's countdown. */
+  timeLeft?: number;
 }
 
 export interface LevelContext {
@@ -65,8 +67,8 @@ export interface TierDef {
 export const TIERS: TierDef[] = [
   { id: 'beginner', title: 'Beginner', blurb: 'Learn to fly: engine running, no emergencies.' },
   { id: 'intermediate', title: 'Intermediate', blurb: 'Precision flying: wind, tight spots and no mistakes.' },
-  { id: 'emergency', title: 'Emergency', blurb: 'The engine quits: save the rotor, glide and flare.' },
-  { id: 'expert', title: 'Expert', blurb: 'Full autorotations to the ground, by hand.' },
+  { id: 'expert', title: 'Expert', blurb: 'Fast, low and tight: a timed valley course and a confined-area landing.' },
+  { id: 'emergency', title: 'Emergency', blurb: 'The engine quits: save the rotor, glide, flare and land it by hand.' },
 ];
 
 /** A level as written below; its place in the menu (`num`, `label`) is worked out from its tier. */
@@ -116,7 +118,8 @@ function lesson(step: (ctx: LevelContext, dt: number) => Update): Objective {
 const ft = (m: number) => Math.round(m * M_TO_FT);
 const fpm = (ms: number) => Math.round(ms * MS_TO_FPM);
 
-export const gateY = (g: Gate, world: World) => world.heightAt(g.x, g.z) + g.agl;
+/** Over the lake a ring's height is measured from the water, not the lake bed. */
+export const gateY = (g: Gate, world: World) => (world.surfaceAt(g.x, g.z) === 'water' ? world.waterLevel : world.heightAt(g.x, g.z)) + g.agl;
 
 /** Angle between the nose at touchdown and the direction the wind comes from, degrees. */
 export function windAngleDeg(td: TouchdownReport, windKt: number): number {
@@ -152,6 +155,22 @@ const VLANDING_CIRCLE: Pad = { x: -400, z: 370, radius: 12, kind: 'circle' };
 const HELIPORT: Pad = { x: -350, z: 330, radius: 5, kind: 'heliport' };
 const VTAKEOFF_SPOT = { x: -400, z: 420 };
 
+// ---------- Expert: the valley course and the farm strip ----------
+
+/** Lake run: the countdown, and the finish time (from the start) that earns the speed star. */
+export const LAKE_RUN = { limitS: 150, fastS: 95 };
+const LAKE_RUN_START = { x: 0, z: 1100, yaw: 0 };
+/** Middle of the farm strip, between its tree lines. */
+const CONFINED_SPOT: Pad = { x: 400, z: 470, radius: 6, kind: 'circle' };
+
+/**
+ * Lake run stars, each earned on its own: one for landing on the pad in time, one for flying through every ring,
+ * one for a fast finish. Rings missed by a little still count as flown, but the whole course must be flown for speed.
+ */
+export function lakeRunStars(r: { hits: number; flown: number; rings: number; time: number }): number {
+  return 1 + Number(r.hits === r.rings) + Number(r.flown === r.rings && r.time <= LAKE_RUN.fastS);
+}
+
 /** Sets each ring to face the way it is flown: from the previous ring (or `from`) toward it. */
 function withFacing(from: { x: number; z: number }, gates: Gate[]): Gate[] {
   return gates.map((g, i) => {
@@ -162,9 +181,10 @@ function withFacing(from: { x: number; z: number }, gates: Gate[]): Gate[] {
 
 /**
  * Detects flying through a ring's plane (it faces `facing`). Returns null until the helicopter crosses
- * the plane inside the rim, then how far from the centre it passed, as a share of the radius.
+ * the plane within `reach` radii of the centre (inside the rim by default), then how far from the centre
+ * it passed, as a share of the radius.
  */
-function ringCrossing(world: World) {
+function ringCrossing(world: World, reach = 1) {
   let ring: Gate | null = null, prev = 0;
   return (s: HelicopterState, g: Gate): number | null => {
     const dir = { x: Math.sin(g.facing ?? 0), z: Math.cos(g.facing ?? 0) };
@@ -175,7 +195,7 @@ function ringCrossing(world: World) {
     if (!(was < 0 && along >= 0)) return null;
     const lateral = (s.pos.x - g.x) * dir.z - (s.pos.z - g.z) * dir.x;
     const off = Math.hypot(lateral, s.pos.y - gateY(g, world)) / g.radius;
-    return off < 1 ? off : null;
+    return off < reach ? off : null;
   };
 }
 
@@ -196,23 +216,26 @@ interface PadLimits {
   two: { dist: number; sinkMs: number };
 }
 
+/** Judges a vertical touchdown `dist` metres from the centre of `pad`. */
+function judgePadTouchdown(td: TouchdownReport, dist: number, pad: Pad, noun: string, lim: PadLimits, k: (typeof KEY_WORDS)[Mode]): Update {
+  if (dist > pad.radius) return fail(`Touched down ${Math.round(dist - pad.radius)} m off the ${noun}. Stop right over it before you come down.`);
+  if (td.verticalSpeed > lim.maxSinkMs) return fail(`Too hard (${fpm(td.verticalSpeed)} fpm). Slow the descent with the collective (${k.up}) in the last few feet.`);
+  if (td.groundSpeed > lim.maxDriftMs) return fail(`Still drifting at touchdown (${Math.round(td.groundSpeed * MS_TO_KT)} kt). Stop all movement, then come straight down.`);
+  const stars =
+    dist < lim.three.dist && td.verticalSpeed < lim.three.sinkMs && td.groundSpeed < 0.8 ? 3 : dist < lim.two.dist && td.verticalSpeed < lim.two.sinkMs ? 2 : 1;
+  return pass(stars, `On the ${noun}, ${dist.toFixed(1)} m from the centre, at ${Math.max(0, fpm(td.verticalSpeed))} fpm.`);
+}
+
 /** Start in a hover near `pad`, move over it and come straight down onto it. */
 function padLanding(pad: Pad, noun: string, lim: PadLimits): Objective {
   let td: TouchdownReport | null = null;
-  let dist = 0;
   return lesson(({ session, mode }) => {
     const s = session.state;
     const k = KEY_WORDS[mode];
     const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
     if (!td && session.touchdown) {
       td = session.touchdown;
-      dist = d;
-      if (dist > pad.radius) return fail(`Touched down ${Math.round(dist - pad.radius)} m off the ${noun}. Stop right over it before you come down.`);
-      if (td.verticalSpeed > lim.maxSinkMs) return fail(`Too hard (${fpm(td.verticalSpeed)} fpm). Slow the descent with the collective (${k.up}) in the last few feet.`);
-      if (td.groundSpeed > lim.maxDriftMs) return fail(`Still drifting at touchdown (${Math.round(td.groundSpeed * MS_TO_KT)} kt). Stop all movement, then come straight down.`);
-      const stars =
-        dist < lim.three.dist && td.verticalSpeed < lim.three.sinkMs && td.groundSpeed < 0.8 ? 3 : dist < lim.two.dist && td.verticalSpeed < lim.two.sinkMs ? 2 : 1;
-      return pass(stars, `On the ${noun}, ${dist.toFixed(1)} m from the centre, at ${Math.max(0, fpm(td.verticalSpeed))} fpm.`);
+      return judgePadTouchdown(td, d, pad, noun, lim, k);
     }
     if (s.time > 150) return fail(`Out of time. Hover over the ${noun}, then lower the collective slowly.`);
     if (d > 150) return fail(`Too far from the ${noun}. Small cyclic inputs, and stop each move before it runs away.`);
@@ -568,6 +591,123 @@ const SPECS: LevelSpec[] = [
     },
   },
   {
+    id: 'lakerun',
+    tier: 'expert',
+    title: 'Lake run',
+    teaches: 'Fly a fast, flowing line: plan each bend early, stay low, then stop and land on a small pad.',
+    config: { ...POWERED, altitudeFt: 150, airspeedKt: 60, start: LAKE_RUN_START },
+    target: null,
+    // Down the valley, a slalom past the meadow, a low pass over the forest on the north shore,
+    // then low over the water to finish on the Lake Helipad. The last ring is angled to line you up on the pad.
+    gates: withFacing(LAKE_RUN_START, [
+      { x: -40, z: 880, agl: 40, radius: 15 },
+      { x: -230, z: 720, agl: 35, radius: 15 },
+      { x: -290, z: 500, agl: 30, radius: 15 },
+      { x: -170, z: 330, agl: 25, radius: 15 },
+      { x: -110, z: 120, agl: 30, radius: 15 },
+      { x: -20, z: -10, agl: 34, radius: 14 },
+      { x: 170, z: -10, agl: 34, radius: 14 },
+      { x: 230, z: 160, agl: 15, radius: 13 },
+      { x: 190, z: 250, agl: 15, radius: 13 },
+    ]).map((g, i, all) => (i === all.length - 1 ? { ...g, facing: Math.atan2(LAKE.x - g.x, LAKE.z - g.z) } : g)),
+    makeObjective(world) {
+      const gates = this.gates;
+      const deck = world.areas.find((a) => a.id === 'helipad')!;
+      // A ring counts as missed when you fly past it within 8 radii, so one slip never ends the run.
+      const cross = ringCrossing(world, 8);
+      let next = 0, hits = 0;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const timeLeft = Math.max(0, LAKE_RUN.limitS - s.time);
+        if (next < gates.length) {
+          const off = cross(s, gates[next]);
+          if (off !== null) (hits += Number(off < 1)), next++;
+        }
+        const missed = next - hits;
+        const td = session.touchdown;
+        if (td) {
+          if (td.area?.id !== deck.id) return fail(`Touched down off the helipad. Slow down early and stop right over the H.`);
+          if (td.verticalSpeed > 2.54) return fail(`Too hard onto the pad (${fpm(td.verticalSpeed)} fpm). Come to a hover first, then lower the collective gently (${k.down}).`);
+          if (td.groundSpeed > 5.2) return fail(`Still moving at ${Math.round(td.groundSpeed * MS_TO_KT)} kt on touchdown. Stop over the pad before you put it down.`);
+          const stars = lakeRunStars({ hits, flown: next, rings: gates.length, time: s.time });
+          const rings = hits === gates.length ? 'all rings' : `${hits} of ${gates.length} rings`;
+          return { ...pass(stars, `On the pad in ${Math.round(s.time)} s, ${rings}.`), nextGate: next, timeLeft };
+        }
+        if (timeLeft <= 0) return fail('Out of time! Keep your speed up between the rings and start slowing down for the pad sooner.');
+        const left = `${Math.ceil(timeLeft)} s left.`;
+        const slip = missed > 0 ? ` (${missed} missed)` : '';
+        let text: string;
+        if (next < gates.length) {
+          const g = gates[next];
+          const dy = gateY(g, world) - s.pos.y;
+          const water = world.surfaceAt(g.x, g.z) === 'water';
+          text =
+            next === 5 || next === 6
+              ? `Ring ${next + 1} of ${gates.length}${slip}: low over the treetops. Hold your height and keep it smooth.`
+              : water
+                ? `Ring ${next + 1} of ${gates.length}${slip}: low over the water. Ease down (${k.down}), not too far.`
+                : dy > g.radius * 0.5
+                  ? `Ring ${next + 1} of ${gates.length}${slip} is higher: raise the collective (${k.up}). ${left}`
+                  : dy < -g.radius * 0.5
+                    ? `Ring ${next + 1} of ${gates.length}${slip} is lower: lower the collective (${k.down}). ${left}`
+                    : `Ring ${next + 1} of ${gates.length}${slip}: start the bend early (${k.turn}) and aim for the middle. ${left}`;
+        } else {
+          const d = Math.hypot(s.pos.x - deck.cx, s.pos.z - deck.cz);
+          text =
+            d > 120
+              ? `Last stretch! Head for the helipad in the middle of the lake and start slowing down (${k.aft}). ${left}`
+              : d > 8 || s.groundSpeed > 2
+                ? `The pad is ${relativeTo(s, deck.cx, deck.cz)}. Slow down and stop right over the H. Watch for drift.`
+                : `Over the pad. Lower the collective gently (${k.down}) and touch down. ${left}`;
+        }
+        return { text, progress: next / gates.length, nextGate: next, timeLeft };
+      });
+    },
+  },
+  {
+    id: 'confined',
+    tier: 'expert',
+    title: 'Confined-area landing',
+    teaches: 'Look the spot over from above, come in steeply over the trees, then straight down between them.',
+    config: { ...POWERED, altitudeFt: 250, airspeedKt: 40, start: { x: 640, z: 470, yaw: Math.PI / 2 } },
+    target: null,
+    gates: [],
+    pads: [CONFINED_SPOT],
+    makeObjective() {
+      const pad = CONFINED_SPOT;
+      const lim: PadLimits = { maxSinkMs: 1.52, maxDriftMs: 2.6, three: { dist: 2, sinkMs: 0.5 }, two: { dist: 4, sinkMs: 1 } };
+      let td: TouchdownReport | null = null;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+        if (!td && session.touchdown) {
+          td = session.touchdown;
+          return judgePadTouchdown(td, d, pad, 'spot', lim, k);
+        }
+        if (s.time > 180) return fail('Out of time. Get over the spot above the treetops, then come straight down.');
+        if (d > 700) return fail('Too far from the farm strip. Stay close and circle it while you look it over.');
+        const over = d < Math.min(2, pad.radius * 0.5) && s.groundSpeed < 1;
+        const text =
+          d > 60
+            ? s.agl < 25
+              ? `Too low to cross the trees: climb (${k.up}). Approach the strip at about 100–150 ft.`
+              : `The farm strip is ${relativeTo(s, pad.x, pad.z)}, between two lines of tall trees. Slow down as you get close.`
+            : !over
+              ? s.agl < 22 && d > pad.radius
+                ? `Careful, the trees are close! Stop moving sideways and line up over the yellow circle first.`
+                : `Come to a hover over the yellow circle, above the treetops. It is ${relativeTo(s, pad.x, pad.z)}.`
+              : s.verticalSpeed < -1.5
+                ? `Coming down too fast (${fpm(-s.verticalSpeed)} fpm): raise the collective a little (${k.up}).`
+                : s.agl > 3
+                  ? `Over the spot. Lower the collective (${k.down}) and come straight down between the trees.`
+                  : `Nearly down. A touch of collective (${k.up}) to slow the sink, and keep still.`;
+        return { text };
+      });
+    },
+  },
+  {
     id: 'failure',
     tier: 'emergency',
     title: 'Engine failure!',
@@ -708,7 +848,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'cushion',
-    tier: 'expert',
+    tier: 'emergency',
     title: 'Flare and cushion',
     teaches: 'Flare at 50–60 ft, level the skids at about 10 ft, then cushion with the collective at about 5 ft.',
     // No auto-cushion: the flare has to take off the speed and the collective the last of the sink.
@@ -757,7 +897,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'wind',
-    tier: 'expert',
+    tier: 'emergency',
     title: 'Wind',
     teaches: 'Land facing into the wind, it cuts your ground speed.',
     config: { ...BASE, windKt: 15, windFromDeg: 330, start: { x: 300, z: 400, yaw: Math.PI / 2, autorotating: { sinkMs: 7, collective: 0.1 } } },
@@ -793,7 +933,7 @@ const SPECS: LevelSpec[] = [
   },
   {
     id: 'checkride',
-    tier: 'expert',
+    tier: 'emergency',
     title: 'Checkride',
     teaches: 'Everything together, realistic mode, no assist.',
     config: { ...BASE, difficulty: 'normal', windKt: 8 },
@@ -832,12 +972,19 @@ export function isUnlocked(index: number, progress: Record<string, number>, gran
 }
 
 /** Bump when levels move between tiers or change order, and add the old order to OLD_LAYOUTS. */
-export const TRAINING_LAYOUT = 2;
+export const TRAINING_LAYOUT = 3;
 const OLD_LAYOUTS = [
   // 1: one flat list of 8.
   ['basics', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
   // 2: Beginner / Intermediate / Expert, 11 levels.
   ['basics', 'hover', 'takeoff', 'landing', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
+  // 3: Beginner / Intermediate / Emergency / Expert, 16 levels.
+  [
+    'basics', 'hover', 'takeoff', 'landing',
+    'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
+    'failure', 'glide', 'field', 'flare',
+    'cushion', 'wind', 'checkride',
+  ],
 ];
 
 /**
