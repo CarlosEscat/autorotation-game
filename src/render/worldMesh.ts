@@ -103,6 +103,60 @@ export function buildWater(world: World): THREE.Mesh {
   return m;
 }
 
+// --- Trees --------------------------------------------------------------------------------
+// Each tree is ONE merged geometry (trunk + foliage) with baked vertex colours, so a variant is a
+// single instanced draw. Forests are split into square chunks: three.js frustum-culls each chunk,
+// and a THREE.LOD per chunk swaps to a tiny silhouette mesh when the chunk is far away.
+
+const TREE_CHUNK = 350; // metres
+const TREE_FAR_DISTANCE = 650; // chunk centre distance where trees switch to the cheap silhouette
+
+/** Non-indexed copy of `geo` with a vertical colour gradient baked in (dark at the bottom, light at the top). */
+function shaded(geo: THREE.BufferGeometry, dark: number, light: number): THREE.BufferGeometry {
+  const g = geo.index ? geo.toNonIndexed() : geo;
+  g.deleteAttribute('uv');
+  const pos = g.attributes.position;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < pos.count; i++) { lo = Math.min(lo, pos.getY(i)); hi = Math.max(hi, pos.getY(i)); }
+  const a = new THREE.Color(dark), b = new THREE.Color(light), c = new THREE.Color();
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    c.copy(a).lerp(b, (pos.getY(i) - lo) / Math.max(1e-6, hi - lo));
+    col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
+const TRUNK_DARK = 0x3d2c20, TRUNK_LIGHT = 0x6b4f37;
+const trunk = (h: number, r0: number, r1: number) =>
+  shaded(new THREE.CylinderGeometry(r1, r0, h, 4, 1, true).translate(0, h / 2, 0), TRUNK_DARK, TRUNK_LIGHT);
+/** Open-ended cone (no hidden underside) unless `cap` is set. */
+const tier = (r: number, h: number, y0: number, seg: number, cap: boolean, dark: number, light: number) =>
+  shaded(new THREE.ConeGeometry(r, h, seg, 1, !cap).translate(0, y0 + h / 2, 0), dark, light);
+const lobe = (r: number, x: number, y: number, z: number, dark: number, light: number) =>
+  shaded(new THREE.IcosahedronGeometry(r, 0).scale(1, 0.85, 1).translate(x, y, z), dark, light);
+
+function treeGeometries() {
+  // Pine: three stacked tiers, the lowest one capped so you can't see up into it from below.
+  const pineNear = mergeGeometries([
+    trunk(0.32, 0.07, 0.045),
+    tier(0.28, 0.42, 0.12, 6, true, 0x1b4231, 0x336b49),
+    tier(0.21, 0.38, 0.34, 6, false, 0x1f4a37, 0x3a7650),
+    tier(0.14, 0.45, 0.55, 6, false, 0x245240, 0x44825a),
+  ])!;
+  // Broadleaf: a main crown plus a smaller offset lobe, so it isn't a perfect ball.
+  const roundNear = mergeGeometries([
+    trunk(0.5, 0.065, 0.04),
+    lobe(0.3, 0, 0.66, 0, 0x335f27, 0x6c9c3b),
+    lobe(0.2, -0.13, 0.80, 0.07, 0x3b6b2d, 0x7ba944),
+  ])!;
+  // Far versions: a handful of triangles, same overall silhouette and colour.
+  const pineFar = shaded(new THREE.ConeGeometry(0.27, 1, 5, 1, true).translate(0, 0.5, 0), 0x1f4a37, 0x3a7650);
+  const roundFar = shaded(new THREE.OctahedronGeometry(1, 0).scale(0.32, 0.45, 0.32).translate(0, 0.55, 0), 0x3b6b2d, 0x70a03e);
+  return { pineNear, roundNear, pineFar, roundFar };
+}
+
 export function buildObstacles(world: World): THREE.Group {
   const group = new THREE.Group();
   const trees = world.obstacles.filter((o) => o.kind === 'tree');
@@ -112,36 +166,54 @@ export function buildObstacles(world: World): THREE.Group {
   const sv = new THREE.Vector3();
   const pv = new THREE.Vector3();
   const tint = new THREE.Color();
+  const up = new THREE.Vector3(0, 1, 0);
   const rnd = mulberry32(7);
 
-  const trunkGeo = new THREE.CylinderGeometry(0.06, 0.09, 1, 5).translate(0, 0.5, 0);
-  // Two stacked cones give pines a chunkier silhouette; same overall height as before.
-  const pineGeo = mergeGeometries([
-    new THREE.ConeGeometry(0.27, 0.55, 6).translate(0, 0.525, 0),
-    new THREE.ConeGeometry(0.19, 0.45, 6).translate(0, 0.775, 0),
-  ]);
-  const roundGeo = new THREE.IcosahedronGeometry(0.3, 0).translate(0, 0.62, 0);
-  const trunks = new THREE.InstancedMesh(trunkGeo, new THREE.MeshLambertMaterial({ color: 0x6b4f37, flatShading: true }), trees.length);
-  const pines = trees.filter((t) => t.variant === 0);
-  const rounds = trees.filter((t) => t.variant === 1);
-  const pineMesh = new THREE.InstancedMesh(pineGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), pines.length);
-  const roundMesh = new THREE.InstancedMesh(roundGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), rounds.length);
+  const geos = treeGeometries();
+  // Colours live in the vertices; the per-instance colour is only a small brightness/hue variation.
+  const treeMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
 
-  trees.forEach((t, i) => {
-    sv.set(t.height, t.height, t.height);
-    m4.compose(pv.set(t.x, t.base - 0.3, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
-    trunks.setMatrixAt(i, m4);
-  });
-  const fill = (list: typeof trees, mesh: THREE.InstancedMesh, base: number) =>
-    list.forEach((t, i) => {
-      sv.set(t.height, t.height, t.height);
-      m4.compose(pv.set(t.x, t.base - 0.3, t.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
-      mesh.setMatrixAt(i, m4);
-      mesh.setColorAt(i, tint.setHex(base).multiplyScalar(0.88 + rnd() * 0.2));
-    });
-  fill(pines, pineMesh, 0x2e6146);
-  fill(rounds, roundMesh, 0x5f8d3c);
-  group.add(trunks, pineMesh, roundMesh);
+  const chunks = new Map<string, { cx: number; cz: number; pines: typeof trees; rounds: typeof trees }>();
+  for (const t of trees) {
+    const ix = Math.floor(t.x / TREE_CHUNK), iz = Math.floor(t.z / TREE_CHUNK);
+    const key = `${ix},${iz}`;
+    let c = chunks.get(key);
+    if (!c) chunks.set(key, (c = { cx: (ix + 0.5) * TREE_CHUNK, cz: (iz + 0.5) * TREE_CHUNK, pines: [], rounds: [] }));
+    (t.variant === 1 ? c.rounds : c.pines).push(t);
+  }
+
+  for (const c of chunks.values()) {
+    const lod = new THREE.LOD();
+    lod.position.set(c.cx, 0, c.cz);
+    lod.matrixAutoUpdate = false;
+    lod.updateMatrix();
+    const near = new THREE.Group(), far = new THREE.Group();
+    const make = (list: typeof trees, nearGeo: THREE.BufferGeometry, farGeo: THREE.BufferGeometry) => {
+      if (!list.length) return;
+      const a = new THREE.InstancedMesh(nearGeo, treeMat, list.length);
+      const b = new THREE.InstancedMesh(farGeo, treeMat, list.length);
+      list.forEach((t, i) => {
+        // Width varies a little around the height-driven size; height stays exact for collisions.
+        const w = t.height * (0.88 + rnd() * 0.26);
+        sv.set(w, t.height, w);
+        m4.compose(pv.set(t.x - c.cx, t.base - 0.3, t.z - c.cz), q.setFromAxisAngle(up, rnd() * 6), sv);
+        a.setMatrixAt(i, m4);
+        b.setMatrixAt(i, m4);
+        const v = 0.86 + rnd() * 0.24;
+        tint.setRGB(v * (0.95 + rnd() * 0.1), v, v * (0.92 + rnd() * 0.1));
+        a.setColorAt(i, tint);
+        b.setColorAt(i, tint);
+      });
+      for (const m of [a, b]) { m.matrixAutoUpdate = false; m.computeBoundingSphere(); }
+      near.add(a);
+      far.add(b);
+    };
+    make(c.pines, geos.pineNear, geos.pineFar);
+    make(c.rounds, geos.roundNear, geos.roundFar);
+    lod.addLevel(near, 0);
+    lod.addLevel(far, TREE_FAR_DISTANCE);
+    group.add(lod);
+  }
 
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
   const rockMesh = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), rocks.length);
