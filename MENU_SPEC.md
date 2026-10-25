@@ -117,7 +117,7 @@ Passed lessons show three stars. Filled `#eef2f5`, empty `#2b2f32`. Wrap in `rol
 |---|---|---|
 | Beginner | Airfield basics: fly, hover, take off and land. | Basic flying, Hover, Running takeoff, Running landing |
 | Intermediate | Open fields and shrinking landing zones, engine running. | Precision flying, Landing into the wind, Vertical takeoff, Vertical landing, Heliport |
-| Expert | Valley runs and tight spots. Fun first, still scored. | Lake run, Confined area |
+| Expert | Valley runs and tight spots. Fun first, still scored. | Lake run, Confined area, Hill climb |
 | Emergency | The full autorotation sequence, ending in the checkride. | Engine failure!, Glide speed, Pick a field, The flare, Flare and cushion, Wind, Checkride |
 
 - Emergency's name is the only one in warning red. Pinnacle landing is **not** in the list (future idea only).

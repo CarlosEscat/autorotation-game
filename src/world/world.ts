@@ -55,6 +55,11 @@ const SEED = 1964;
 const SIZE = 3200;
 const CELLS = 160; // 20 m grid
 export const LAKE = { x: 60, z: 260, r: 210 };
+/**
+ * Lookout Hill, in the forest east of the airport: a round hill `height` m above the land around it,
+ * flat within `top` m of the summit and blending into the ground by `foot` m out.
+ */
+export const HILL = { x: 240, z: -650, height: 60, top: 22, foot: 230 };
 
 export const AREA_DEFS: Omit<LandingArea, 'elevation'>[] = [
   {
@@ -128,6 +133,11 @@ function baseHeight(x: number, z: number): number {
   return hills + detail + rim;
 }
 
+/** How far Lookout Hill raises the ground at a point. */
+function hillRise(x: number, z: number): number {
+  return HILL.height * (1 - smoothstep(HILL.top, HILL.foot, Math.hypot(x - HILL.x, z - HILL.z)));
+}
+
 function localCoords(a: Pick<LandingArea, 'cx' | 'cz' | 'rotation'>, x: number, z: number) {
   const dx = x - a.cx, dz = z - a.cz;
   const c = Math.cos(a.rotation), s = Math.sin(a.rotation);
@@ -162,10 +172,12 @@ export function createWorld(): World {
   // and random choice elsewhere stays exactly where it was. Then sit them on today's ground
   // and clear the airport.
   const early = areas.filter((a) => !LATER_AREAS.has(a.id));
-  const before = buildTerrain(early);
+  // Lookout Hill came later too: its forest keeps its place and rides up the slopes, with the summit cleared.
+  const before = buildTerrain(early, false);
   const obstacles = placeObstacles(early, before.heightAt, before.surfaceAt, before.slopeAt)
     .map((o) => ({ ...o, base: heightAt(o.x, o.z) }))
-    .filter((o) => !areas.some((a) => LATER_AREAS.has(a.id) && a.deckHeight === undefined && inClearZone(a, o.x, o.z)));
+    .filter((o) => !areas.some((a) => LATER_AREAS.has(a.id) && a.deckHeight === undefined && inClearZone(a, o.x, o.z)))
+    .filter((o) => Math.hypot(o.x - HILL.x, o.z - HILL.z) > HILL.top + 20);
   obstacles.push(...airportBuildings(areas.find((a) => a.id === 'runway')!, heightAt));
 
   // Spatial hash for collision queries.
@@ -207,7 +219,7 @@ function airportBuildings(rwy: LandingArea, heightAt: (x: number, z: number) => 
 }
 
 /** Height field for the given landing areas, plus the queries that depend on it. */
-function buildTerrain(areas: LandingArea[]) {
+function buildTerrain(areas: LandingArea[], withHill = true) {
   const lakeElev = baseHeight(LAKE.x, LAKE.z);
   const waterLevel = waterLevelAt();
   const ground = areas.filter((a) => a.deckHeight === undefined);
@@ -225,6 +237,7 @@ function buildTerrain(areas: LandingArea[]) {
       h = lerp(h, lakeElev - 10, 1 - smoothstep(LAKE.r * 0.55, LAKE.r * 1.15, lr));
       // Blend the ground to each field's level over ~180 m so approaches are gentle slopes, not drop-offs.
       for (const a of ground) h = lerp(h, a.elevation, 1 - smoothstep(12, 180, rectDistance(a, x, z)));
+      if (withHill) h += hillRise(x, z);
       heights[j * n + i] = h;
     }
   }

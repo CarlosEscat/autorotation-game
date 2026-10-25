@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { FlightConfig, FlightSession } from '../src/game/session';
-import { LAKE_RUN, LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, lakeRunStars, lessonStates, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
+import { HILL_CLIMB, LAKE_RUN, LEVELS, ObjectiveStatus, TIERS, gateY, isUnlocked, lakeRunStars, lessonStates, unlocksFromOldLayouts, windAngleDeg } from '../src/game/levels';
 import { TouchdownReport } from '../src/game/landing';
 import { createWorld } from '../src/world/world';
 import { ControlInputs, HelicopterState, neutralControls } from '../src/sim/state';
@@ -207,7 +207,9 @@ describe('training levels', () => {
     expect(isUnlocked(at('failure'), upTo('landing'))).toBe(false);
     expect(isUnlocked(at('lakerun'), upTo('heliport'))).toBe(true);
     expect(isUnlocked(at('failure'), upTo('heliport'))).toBe(false);
-    expect(isUnlocked(at('failure'), upTo('confined'))).toBe(true);
+    expect(isUnlocked(at('hillclimb'), upTo('confined'))).toBe(true);
+    expect(isUnlocked(at('failure'), upTo('confined'))).toBe(false);
+    expect(isUnlocked(at('failure'), upTo('hillclimb'))).toBe(true);
     expect(isUnlocked(at('checkride'), upTo('wind'))).toBe(true);
     // Passing a later level alone does not open the one after it: the path has one Next up.
     expect(isUnlocked(at('rings'), { landing: 1 })).toBe(false);
@@ -260,18 +262,26 @@ describe('training levels', () => {
     expect(isUnlocked(at('wind'), oldExpert, unlocksFromOldLayouts(oldExpert))).toBe(true);
   });
 
+  it('migration: a save that reached Emergency before Hill climb existed keeps it open', () => {
+    const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
+    const expertDone = { basics: 3, hover: 3, takeoff: 3, landing: 3, rings: 2, windfield: 2, vtakeoff: 2, vlanding: 3, heliport: 2, lakerun: 2, confined: 1 };
+    const granted = unlocksFromOldLayouts(expertDone);
+    expect(lessonStates(expertDone, granted)[at('hillclimb')]).toBe('next');
+    expect(isUnlocked(at('failure'), expertDone, granted)).toBe(true);
+  });
+
   it('tiers: beginner, intermediate, expert, emergency in order, numbered within each tier', () => {
     expect(TIERS.map((t) => t.id)).toEqual(['beginner', 'intermediate', 'expert', 'emergency']);
     expect(LEVELS.map((l) => l.id)).toEqual([
       'basics', 'hover', 'takeoff', 'landing',
       'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
-      'lakerun', 'confined',
+      'lakerun', 'confined', 'hillclimb',
       'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
     ]);
     expect(LEVELS.map((l) => l.label)).toEqual([
       'Beginner 1', 'Beginner 2', 'Beginner 3', 'Beginner 4',
       'Intermediate 1', 'Intermediate 2', 'Intermediate 3', 'Intermediate 4', 'Intermediate 5',
-      'Expert 1', 'Expert 2',
+      'Expert 1', 'Expert 2', 'Expert 3',
       'Emergency 1', 'Emergency 2', 'Emergency 3', 'Emergency 4', 'Emergency 5', 'Emergency 6', 'Emergency 7',
     ]);
   });
@@ -615,6 +625,49 @@ describe('training levels', () => {
       // Bends: the sharpest turn between legs is well over Precision flying's 40°.
       const turns = gates.slice(1).map((g, i) => Math.abs(wrapAngle(g.facing! - gates[i].facing!)) / DEG);
       expect(Math.max(...turns)).toBeGreaterThan(60);
+    });
+
+    /** Lifts off, chases each ring at about `kt`, then slows down and hover-taxis onto the summit pad. */
+    const hillClimbPilot = (kt = 45, skip: number[] = []): Pilot => {
+      const gates = def('hillclimb').gates;
+      const pad = def('hillclimb').pads![0];
+      let trim = Number.NaN, prevYaw = Number.NaN;
+      return (s, c, session, next) => {
+        if (Number.isNaN(trim)) (trim = trimmedHover(session)), (prevYaw = s.yaw);
+        const rate = wrapAngle(s.yaw - prevYaw) * 120;
+        prevYaw = s.yaw;
+        c.pedal = 0;
+        if (next < gates.length) {
+          const g = gates[next];
+          const aimY = gateY(g, world) + (skip.includes(next) ? g.radius * 2 : 0);
+          c.collective = clamp(trim + (clamp((aimY - s.pos.y) * 0.6, -6, 6) - s.vel.y) * 0.06, 0, 1);
+          const err = wrapAngle(Math.atan2(-(g.x - s.pos.x), -(g.z - s.pos.z)) - s.yaw);
+          c.cyclicRoll = s.agl < 3 ? 0 : clamp(-(2 * err - rate), -1, 1);
+          c.cyclicPitch = clamp(((s.airspeed * 1.943844 - kt) * 0.3 * DEG - s.pitchCmd) * 4, -1, 1);
+          return;
+        }
+        const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+        if (d < 40) {
+          const over = d < 1.5 && s.groundSpeed < 0.6;
+          return hoverAt(s, c, trim, pad.x, pad.z, s.heading, 8, over ? (s.agl > 2 ? 0.8 : 0.3) : undefined);
+        }
+        const err = wrapAngle(Math.atan2(-(pad.x - s.pos.x), -(pad.z - s.pos.z)) - s.yaw);
+        c.cyclicRoll = clamp(-(1.5 * err - rate * 0.5), -0.7, 0.7);
+        const gs = s.groundSpeed * 1.943844;
+        c.cyclicPitch = clamp((clamp((gs - clamp(d / 4, 5, 40)) * DEG, -6 * DEG, 15 * DEG) - s.pitchCmd) * 4, -1, 1);
+        const aimY = world.heightAt(pad.x, pad.z) + 12;
+        c.collective = clamp(trim + (clamp((aimY - s.pos.y) * 0.4, -3, 3) - s.vel.y) * 0.03, 0, 1);
+      };
+    };
+
+    it('hill climb: through every ring and onto the summit pad', () => {
+      const { st, session } = runLevel('hillclimb', hillClimbPilot(40));
+      expect(st.state).toBe('passed');
+      expect(st.text).toMatch(/all rings/);
+      // Careful (40 kt and a slow hover-taxi onto the summit): every ring, but not fast enough for the third star.
+      expect(session.state.time).toBeGreaterThan(HILL_CLIMB.fastS);
+      expect(st.stars).toBe(2);
+      expect(session.crashed).toBe(false);
     });
 
     /** Climb-out over the trees, a slow transit to a hover 30 m over the spot, then straight down. */

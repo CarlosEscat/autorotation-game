@@ -1,6 +1,6 @@
 import { MS_TO_FPM, MS_TO_KT, M_TO_FT } from '../sim/aircraft';
 import { DEG, wrapAngle } from '../sim/vec';
-import { LAKE, World } from '../world/world';
+import { HILL, LAKE, World } from '../world/world';
 import { computeGuidance } from './guidance';
 import { KEY_WORDS, Mode } from './hints';
 import { TouchdownReport } from './landing';
@@ -155,12 +155,17 @@ const LAKE_RUN_START = { x: 0, z: 1100, yaw: 0 };
 /** Middle of the farm strip, between its tree lines. */
 const CONFINED_SPOT: Pad = { x: 400, z: 470, radius: 6, kind: 'circle' };
 
+/** Hill climb: the countdown, the finish time that earns the speed star, and the pad on the summit of Lookout Hill. */
+export const HILL_CLIMB = { limitS: 180, fastS: 85 };
+const SUMMIT_PAD: Pad = { x: HILL.x, z: HILL.z, radius: 6, kind: 'heliport' };
+const HILL_CLIMB_START = { x: RUNWAY_X, z: -200, yaw: 0 };
+
 /**
  * Lake run stars, each earned on its own: one for landing on the pad in time, one for flying through every ring,
  * one for a fast finish. Rings missed by a little still count as flown, but the whole course must be flown for speed.
  */
-export function lakeRunStars(r: { hits: number; flown: number; rings: number; time: number }): number {
-  return 1 + Number(r.hits === r.rings) + Number(r.flown === r.rings && r.time <= LAKE_RUN.fastS);
+export function lakeRunStars(r: { hits: number; flown: number; rings: number; time: number }, fastS = LAKE_RUN.fastS): number {
+  return 1 + Number(r.hits === r.rings) + Number(r.flown === r.rings && r.time <= fastS);
 }
 
 /** Sets each ring to face the way it is flown: from the previous ring (or `from`) toward it. */
@@ -696,6 +701,86 @@ const SPECS: LevelSpec[] = [
     },
   },
   {
+    id: 'hillclimb',
+    tier: 'expert',
+    title: 'Hill climb',
+    teaches: 'Take off, thread the rings low past the trees and up the hillside, then stop and land on the summit.',
+    config: { ...POWERED, altitudeFt: 0, start: { ...HILL_CLIMB_START, settle: 'skids' } },
+    target: null,
+    // Off the runway, right over the forest and up the wooded south slope of Lookout Hill, left round its
+    // east side, then west onto the summit pad. Each ring sits a few metres above the treetops or the slope.
+    gates: withFacing(HILL_CLIMB_START, [
+      { x: RUNWAY_X, z: -440, agl: 15, radius: 12 },
+      { x: -80, z: -580, agl: 26, radius: 10 },
+      { x: 20, z: -600, agl: 29, radius: 10 },
+      { x: 125, z: -585, agl: 28, radius: 10 },
+      { x: 220, z: -562, agl: 32, radius: 10 },
+      { x: 305, z: -575, agl: 30, radius: 10 },
+      { x: 330, z: -655, agl: 18, radius: 10 },
+    ]),
+    pads: [SUMMIT_PAD],
+    makeObjective(world) {
+      const gates = this.gates;
+      const pad = SUMMIT_PAD;
+      const lim: PadLimits = { maxSinkMs: 2.54, maxDriftMs: 5.2, three: { dist: 3, sinkMs: 1 }, two: { dist: 5, sinkMs: 2 } };
+      // As on the lake run, a ring flown past within 8 radii counts as missed, so one slip never ends the run.
+      const cross = ringCrossing(world, 8);
+      let next = 0, hits = 0, lastTd: TouchdownReport | null = null;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const timeLeft = Math.max(0, HILL_CLIMB.limitS - s.time);
+        if (next < gates.length) {
+          const off = cross(s, gates[next]);
+          if (off !== null) (hits += Number(off < 1)), next++;
+        }
+        const missed = next - hits;
+        const td = session.touchdown;
+        // Hopping on the runway before the first ring is fine; any later touchdown ends the run.
+        if (td && td !== lastTd && next > 0) {
+          // A few metres of grace around the painted pad: the summit is flat that far.
+          const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+          const r = judgePadTouchdown(td, d, { ...pad, radius: pad.radius + 3 }, 'summit pad', lim, k);
+          if (r.state === 'failed') return r;
+          const stars = lakeRunStars({ hits, flown: next, rings: gates.length, time: s.time }, HILL_CLIMB.fastS);
+          const rings = hits === gates.length ? 'all rings' : `${hits} of ${gates.length} rings`;
+          return { ...pass(stars, `On the summit in ${Math.round(s.time)} s, ${rings}.`), nextGate: next, timeLeft };
+        }
+        lastTd = td;
+        if (timeLeft <= 0) return fail('Out of time! Keep moving between the rings and start slowing down for the summit sooner.');
+        const left = `${Math.ceil(timeLeft)} s left.`;
+        const slip = missed > 0 ? ` (${missed} missed)` : '';
+        let text: string;
+        if (session.onSkids && next === 0) {
+          text = `On the runway, engine running. Lift off (${k.up}) and fly through the first ring ahead. ${left}`;
+        } else if (next < gates.length) {
+          const g = gates[next];
+          const dy = gateY(g, world) - s.pos.y;
+          const label = `Ring ${next + 1} of ${gates.length}${slip}`;
+          text =
+            next === 0
+              ? `${label}: lift off and build speed along the runway. ${left}`
+              : next <= 2
+                ? `${label}: low over the forest. Keep just above the treetops.`
+                : next <= 4
+                  ? `${label}: up the hillside, the trees are close. ${dy > 0 ? `Climb with the slope (${k.up}).` : 'Hold your height.'}`
+                  : next === 5
+                    ? `${label}: bend left round the hill (${k.turn}). Keep clear of the trees.`
+                    : `${label}: last ring. The summit is on your left after it: start slowing down (${k.aft}).`;
+        } else {
+          const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+          text =
+            d > 60
+              ? `Turn for the summit pad, ${relativeTo(s, pad.x, pad.z)}. Slow down early (${k.aft}). ${left}`
+              : d > 2 || s.groundSpeed > 1.5
+                ? `The pad is ${relativeTo(s, pad.x, pad.z)}. Come to a hover right over the H, clear of the trees.`
+                : `Over the pad. Lower the collective gently (${k.down}) and touch down. ${left}`;
+        }
+        return { text, progress: next / gates.length, nextGate: next, timeLeft };
+      });
+    },
+  },
+  {
     id: 'failure',
     tier: 'emergency',
     title: 'Engine failure!',
@@ -965,7 +1050,7 @@ export const isUnlocked = (index: number, progress: Record<string, number>, gran
   lessonStates(progress, granted)[index] !== 'locked';
 
 /** Bump when levels move between tiers or change order, and add the old order to OLD_LAYOUTS. */
-export const TRAINING_LAYOUT = 3;
+export const TRAINING_LAYOUT = 4;
 const OLD_LAYOUTS = [
   // 1: one flat list of 8.
   ['basics', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
@@ -977,6 +1062,13 @@ const OLD_LAYOUTS = [
     'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
     'failure', 'glide', 'field', 'flare',
     'cushion', 'wind', 'checkride',
+  ],
+  // 4: Beginner / Intermediate / Expert / Emergency, 18 levels (before Hill climb).
+  [
+    'basics', 'hover', 'takeoff', 'landing',
+    'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
+    'lakerun', 'confined',
+    'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
   ],
 ];
 

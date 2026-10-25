@@ -219,6 +219,26 @@ const CONFINED = svg(
     text(160, 156, 'trees both sides · no drift', INK, 'middle', 600),
 );
 
+/** Side view: off the runway, low over the forest, up the wooded hillside to the pad on the summit. */
+const HILL_CLIMB = svg(
+  ground() +
+    `<path d="M150 ${GROUND} C 200 ${GROUND}, 220 52, 262 46 L 290 46 C 304 46, 312 90, 320 112 V${GROUND} Z" style="fill:${GREEN};stroke:none" opacity="0.22"/>` +
+    `<rect x="6" y="${GROUND - 3}" width="70" height="4" style="fill:${INK}" opacity="0.35"/>` +
+    [[96, GROUND], [114, GROUND], [132, GROUND], [180, 128], [198, 112], [216, 92], [234, 72], [298, 56]]
+      .map(([x, y]) => `<ellipse cx="${x}" cy="${y - 12}" rx="7" ry="14" style="fill:${GREEN};stroke:none" opacity="0.55"/>`)
+      .join('') +
+    `<path d="M30 ${GROUND - 8} Q 60 112 84 104 S 130 98, 150 96 S 190 88, 206 72 S 240 40, 276 42" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    ring(84, 104, 1) +
+    ring(150, 96, 3) +
+    ring(207, 70, 5) +
+    `<rect x="264" y="${42}" width="24" height="4" style="fill:#3a3f4a;stroke:${ACC}" stroke-width="2"/>` +
+    text(276, 34, 'H', ACC) +
+    heli(30, GROUND - 10, 0) +
+    text(40, 156, 'runway', INK, 'middle', 600) +
+    text(114, 156, 'forest', GREEN, 'middle', 600) +
+    text(250, 156, 'Lookout Hill', INK, 'middle', 600),
+);
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -443,6 +463,16 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Touch down inside the circle, slower than 300 fpm, drifting less than 5 kt, without touching a tree. Within 2 m of the centre and very soft earns three stars.',
     diagram: CONFINED,
+  },
+  hillclimb: {
+    goal: 'Take off from the airport and follow seven rings low over the forest and up the wooded side of Lookout Hill, then land on the small pad on its summit.',
+    steps: (k) => [
+      `Lift off (<b>${k.up}</b>) and build speed along the runway (<b>${k.fwd}</b>) through ring 1, then bank right (<b>${k.turn}</b>) toward the hill.`,
+      `Rings 2 to 6 sit just above the treetops and the slope. Fly at about 40–50 kt and climb with the ground (<b>${k.up}</b>): the trees are close, so don't dip.`,
+      `Rings 6 and 7 bend left round the hill. After 7, slow down (<b>${k.aft}</b>), turn left to the summit, stop over the H and come down gently (<b>${k.down}</b>).`,
+    ],
+    pass: 'Land on the summit pad before the 3:00 countdown runs out. One star for landing in time, one for flying through all seven rings, one for touching down within 1:25 of the start. A missed ring costs only its star.',
+    diagram: HILL_CLIMB,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',

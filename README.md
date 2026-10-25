@@ -61,11 +61,11 @@ Coaching hints (on by default, toggle in the menu) suggest the next action in co
 
 ## Training
 
-**Training** in the menu has 18 short levels in four tiers, each teaching one skill:
+**Training** in the menu has 19 short levels in four tiers, each teaching one skill:
 
-- **Beginner** (at the airport, engine running): basic flying (fly through gates), hover (pedal turns and a hover box without touching down), running takeoff (slide along the runway, then climb through a ring), running landing (touch down on the runway while still moving forward).
+- **Beginner** (at the airport, engine running): basic flying (fly through gates), hover (the height holds itself: pedal turns to 270° and back, then ease forward through a ring), running takeoff (slide along the runway, then climb through a ring), running landing (touch down on the runway while still moving forward).
 - **Intermediate** (over Big Meadow, engine running): precision flying (seven smaller rings on a circuit, against the clock), landing into the wind (read the windsock, touch down in a circle facing into a 12 kt wind), vertical takeoff (steady hover, then fly away through a ring), vertical landing (straight down into a circle), and a heliport landing onto a small pad.
-- **Expert** (engine running): the lake run (a timed valley course of nine rings with tight bends, a low pass over the treetops and the water, finishing on the Lake Helipad; stars for landing in time, for every ring and for a finish within 1:35), and a confined-area landing between the tree lines of the farm strip.
+- **Expert** (engine running): the lake run (a timed valley course of nine rings with tight bends, a low pass over the treetops and the water, finishing on the Lake Helipad; stars for landing in time, for every ring and for a finish within 1:35), a confined-area landing between the tree lines of the farm strip, and the hill climb (take off from the runway, seven rings low over the forest and up the wooded side of Lookout Hill, then land on its summit pad; scored like the lake run, with a 1:25 finish for the third star).
 - **Emergency**: the engine failure, glide speed, picking a field, the flare, flare and cushion together, landing into the wind, and a final checkride on Realistic.
 
 Each level shows step-by-step instructions, ends as soon as its goal is met or failed, and awards 1–3 stars. Passing a level unlocks the next, in order across the tiers; stars are saved in the browser. Picking a level first shows a briefing (goal, steps, how to pass, and a diagram); **Start** or Enter begins it.
