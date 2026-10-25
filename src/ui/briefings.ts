@@ -75,20 +75,17 @@ const BASICS = svg(
 
 const HOVER = svg(
   `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
-    `<rect x="186" y="30" width="80" height="80" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.5"/>` +
-    [[266, 30, 1], [186, 30, 2], [186, 110, 3], [266, 110, 4]]
-      .map(([x, y, n]) => `<circle cx="${x}" cy="${y}" r="9" style="stroke:${ACC}" stroke-width="3"/>` + text(x + (x > 200 ? 16 : -16), y + 4, String(n), ACC))
-      .join('') +
-    heliTop(266, 110, 0) +
-    arrow(266, 92, 266, 46) +
-    heliTop(70, 80, 0) +
-    `<path d="M48 62 A 28 28 0 0 1 70 52" style="stroke:${ACC}" stroke-width="2"/>` +
-    arrow(52, 58, 46, 66) +
-    `<path d="M92 62 A 28 28 0 0 0 70 52" style="stroke:${ACC}" stroke-width="2"/>` +
-    arrow(88, 58, 94, 66) +
-    text(70, 32, 'PEDALS', ACC) +
-    text(70, 128, 'turn on the spot', INK, 'middle', 600) +
-    text(226, 152, 'then the hover box, 1 → 4', INK, 'middle', 600),
+    heliTop(80, 86, 0) +
+    `<path d="M58 68 A 28 28 0 0 1 80 58" style="stroke:${ACC}" stroke-width="2"/>` +
+    arrow(62, 64, 56, 72) +
+    `<path d="M102 68 A 28 28 0 0 0 80 58" style="stroke:${ACC}" stroke-width="2"/>` +
+    arrow(98, 64, 104, 72) +
+    text(80, 34, 'PEDALS', ACC) +
+    text(80, 134, '1 · 270°, then back to 360°', INK, 'middle', 600) +
+    `<circle cx="236" cy="40" r="12" style="stroke:${ACC}" stroke-width="3"/>` +
+    heliTop(236, 112, 0) +
+    arrow(236, 94, 236, 58) +
+    text(236, 152, '2 · ease forward through the ring', INK, 'middle', 600),
 );
 
 const TAKEOFF = svg(
@@ -348,13 +345,13 @@ export const BRIEFINGS: Record<string, Briefing> = {
     diagram: BASICS,
   },
   hover: {
-    goal: 'Hold a steady hover a few feet off the runway: turn on the spot with the pedals, then move a few metres at a time.',
+    goal: 'A first hover a few feet off the runway. The helicopter holds the height for you: just turn with the pedals, then ease forward through a ring.',
     steps: (k) => [
-      `The <b>collective</b> holds the height: small taps of <b>${k.up}</b> / <b>${k.down}</b>. Don't let the skids touch the ground.`,
       `The <b>pedals</b> turn the nose: <b>${k.yawLeft}</b> for left, <b>${k.yawRight}</b> for right. Let go just before the heading you want.`,
-      `Small <b>cyclic</b> inputs move you: <b>${k.fwd}</b> / <b>${k.aft}</b> forward and back, <b>${k.left}</b> / <b>${k.right}</b> sideways. Every move needs the opposite input to stop it.`,
+      `Turn left to <b>270°</b>, then right back to <b>360°</b>. The lesson text shows your heading as you turn.`,
+      `Then ease the <b>cyclic</b> forward (<b>${k.fwd}</b>) a little and fly slowly through the yellow ring ahead.`,
     ],
-    pass: 'Finish both turns and the four rings of the hover box without touching down. A quick, gentle box earns three stars.',
+    pass: 'Both turns, then through the ring without touching down. A quick, gentle run earns three stars.',
     diagram: HOVER,
   },
   takeoff: {

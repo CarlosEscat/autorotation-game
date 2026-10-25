@@ -136,16 +136,8 @@ const POWERED: FlightConfig = { ...BASE, airspeedKt: 0, failureDelay: NEVER, fre
 /** Centreline of the north–south airport runway; its south end is at z = -175. */
 const RUNWAY_X = -180;
 const HOVER_SPOT = { x: RUNWAY_X + 8, z: -300 };
-/**
- * Hover box corners, 15 m apart: forward, left, back, then right to the start. Each ring faces the way you
- * arrive; the last one surrounds the start position, so it only appears once it is next.
- */
-const HOVER_BOX: Gate[] = [
-  [0, -15, Math.PI],
-  [-15, -15, -Math.PI / 2],
-  [-15, 0, 0],
-  [0, 0, Math.PI / 2],
-].map(([dx, dz, facing], i) => ({ x: HOVER_SPOT.x + dx, z: HOVER_SPOT.z + dz, agl: 7.5, radius: 7, facing, hiddenUntilNext: i === 3 }));
+/** The hover lesson's one ring, 25 m straight ahead of the start, facing the way you fly into it. */
+const HOVER_RING: Gate = { x: HOVER_SPOT.x, z: HOVER_SPOT.z - 25, agl: 7.5, radius: 7, facing: Math.PI };
 
 // ---------- Intermediate: the open field (Big Meadow, centre -380, 360) ----------
 
@@ -291,46 +283,42 @@ const SPECS: LevelSpec[] = [
     id: 'hover',
     tier: 'beginner',
     title: 'Hover',
-    teaches: 'Pedals turn the nose, small cyclic inputs move you a few metres, the collective holds the height.',
+    teaches: 'Pedals turn the nose on the spot; then ease forward through a ring.',
     config: { ...POWERED, altitudeFt: 10, start: { ...HOVER_SPOT, yaw: 0, settle: 'hover' } },
     target: null,
-    gates: HOVER_BOX,
-    makeObjective() {
-      const gates = this.gates;
+    gates: [HOVER_RING],
+    makeObjective(world) {
+      const ring = this.gates[0];
+      const crossed = ringCrossing(world);
       const headings = [270, 360];
-      // Settle, two pedal turns, then the four corners of the hover box.
-      const steps = 1 + headings.length + gates.length;
-      let step = 0, held = 0, peakSpeed = 0;
+      // Settle, then the two pedal turns; after them, fly forward through the ring.
+      const ringStep = 1 + headings.length;
+      let step = 0, held = 0, lastHeading = Number.NaN;
       return lesson(({ session, mode }, dt) => {
         const s = session.state;
         const k = KEY_WORDS[mode];
         if (session.touchdown) return fail(`Touched the ground. Keep a little collective (${k.up}) to stay a few feet up.`);
         if (s.agl > 12) return fail(`Too high (${ft(s.agl)} ft): a hover is just above the ground. Lower the collective (${k.down}) sooner.`);
-        if (Math.hypot(s.pos.x - HOVER_SPOT.x, s.pos.z - HOVER_SPOT.z) > 60) return fail('Drifted too far. Small cyclic inputs, and stop each move before it runs away.');
-        if (s.time > 180) return fail('Out of time. Small, steady inputs work best.');
-        peakSpeed = Math.max(peakSpeed, s.groundSpeed);
-        const steady = s.groundSpeed < 1.5 && Math.abs(s.verticalSpeed) < 0.6;
-        const g = step > headings.length ? gates[step - 1 - headings.length] : null;
-        const want = step >= 1 && step <= headings.length ? headings[step - 1] : null;
+        if (Math.hypot(s.pos.x - HOVER_SPOT.x, s.pos.z - HOVER_SPOT.z) > 60) return fail('Drifted too far. Ease forward gently, then let the cyclic go.');
+        if (s.time > 150) return fail('Out of time. Tap the pedals and let go a little before the heading you want.');
+        const turnRate = Number.isNaN(lastHeading) || dt === 0 ? 0 : Math.abs(wrapAngle((s.heading - lastHeading) * DEG)) / DEG / dt;
+        lastHeading = s.heading;
+        const want = step >= 1 && step < ringStep ? headings[step - 1] : null;
         const off = want === null ? 0 : Math.abs(wrapAngle((s.heading - want) * DEG)) / DEG;
-        const there = g ? Math.hypot(s.pos.x - g.x, s.pos.z - g.z) < 3 : want !== null ? off < 8 : true;
-        held = there && steady ? held + dt : 0;
-        if (held >= (step === 0 ? 3 : 1)) (step++, (held = 0));
-        const nextGate = Math.max(0, step - 1 - headings.length);
-        if (step === steps) return { ...pass(s.time < 75 && peakSpeed < 4 ? 3 : s.time < 120 ? 2 : 1, 'Hover box done!'), nextGate };
-        const height =
-          s.agl < 1 ? ` Low: a touch of collective (${k.up}).` : s.agl > 6 ? ` High: ease the collective down (${k.down}).` : '';
+        held = step < ringStep && off < 8 && turnRate < 10 ? held + dt : 0;
+        if (held >= (step === 0 ? 2 : 1)) (step++, (held = 0));
+        if (step === ringStep) {
+          if (crossed(s, ring) !== null) return { ...pass(s.time < 45 ? 3 : s.time < 75 ? 2 : 1, 'Through the ring. Hover lesson done!'), nextGate: 1 };
+          const text = `Ease forward (${k.fwd}) and fly slowly through the yellow ring ahead.`;
+          return { text, progress: step / (ringStep + 1), nextGate: 0 };
+        }
         const turn = (dir: string, key: string) => `${dir} pedal (${key}): turn the nose to ${String(want).padStart(3, '0')}° (now ${String(Math.round(s.heading) % 360).padStart(3, '0')}°), then let go.`;
         const text = [
-          `You are hovering at about 10 ft. Hold still: small collective inputs (${k.up} / ${k.down}) keep the height.`,
+          'You are hovering at about 10 ft and the helicopter holds the height for you. Just watch for a moment.',
           turn('Left', k.yawLeft),
           turn('Right', k.yawRight),
-          `Ease forward (${k.fwd}) into the yellow ring ahead, then stop over it (${k.aft}).`,
-          `Slide left (${k.left}) to the next ring, then stop (${k.right}).`,
-          `Ease back (${k.aft}) to the ring behind you, then stop (${k.fwd}).`,
-          `Slide right (${k.right}) back to where you started, then stop (${k.left}).`,
         ][step];
-        return { text: text + height, progress: step / steps, nextGate };
+        return { text, progress: step / (ringStep + 1), nextGate: 0 };
       });
     },
   },

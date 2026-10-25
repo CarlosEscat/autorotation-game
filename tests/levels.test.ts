@@ -87,6 +87,18 @@ describe('training levels', () => {
     expect(st.stars).toBeGreaterThanOrEqual(2);
   });
 
+  it('hover: pedals alone do the turns, then a gentle push forward goes through the ring', () => {
+    const { st, session } = runLevel('hover', (s, c, _session, _next, st) => {
+      const want = st.text.includes('to 270') ? 270 : 360;
+      c.pedal = clamp(wrapAngle((want - s.heading) * DEG) / DEG / 20, -1, 1);
+      // The collective is never touched: the trimmed start has to hold the height on its own.
+      c.cyclicPitch = st.text.startsWith('Ease forward') ? clamp((-0.04 - s.pitchCmd) * 6, -1, 1) : clamp(-s.pitchCmd * 6, -1, 1);
+    });
+    console.log('hover', st.state, st.stars, session.state.time.toFixed(1), st.reason ?? st.text);
+    expect(st.state).toBe('passed');
+    expect(st.stars).toBeGreaterThanOrEqual(2);
+  });
+
   it.each(['failure', 'glide', 'flare'])('%s can be passed by good technique', (id) => {
     const { st } = runLevel(id, botPilot());
     console.log(id, st.state, st.stars, st.reason ?? st.text);
@@ -272,22 +284,6 @@ describe('training levels', () => {
 
   describe('beginner lessons', () => {
     const def = (id: string) => level(id);
-
-    it('hover: two pedal turns and the hover box pass without touching down', () => {
-      const d = def('hover');
-      const start = d.config.start!;
-      let trim = Number.NaN;
-      const { st, session } = runLevel('hover', (s, c, _session, next, status) => {
-        if (Number.isNaN(trim)) trim = c.collective;
-        const step = Math.round((status.progress ?? 0) * 7);
-        const heading = step === 1 ? 270 : 0;
-        const g = step >= 3 ? d.gates[next] : { x: start.x, z: start.z };
-        hoverAt(s, c, trim, g.x, g.z, heading);
-      });
-      expect(st.state).toBe('passed');
-      expect(st.stars).toBeGreaterThanOrEqual(2);
-      expect(session.touchdown).toBeNull();
-    });
 
     it('hover: lowering the collective touches down and fails', () => {
       const { st } = runLevel('hover', (_s, c) => void (c.collective = 0.3));
