@@ -226,7 +226,7 @@ export class Game {
     this.renderer.setGates([], 0);
     this.renderer.setPads([]);
     this.renderer.setWind(cfg.windFromDeg, cfg.windKt);
-    this.renderer.setMode('cockpit');
+    this.renderer.setMode('chase');
     this.screens.show(null);
     this.hud.setVisible(true);
     this.touch.setVisible(this.input.mode === 'touch');

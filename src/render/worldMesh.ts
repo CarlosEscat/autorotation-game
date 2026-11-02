@@ -324,36 +324,9 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   }
   flat(new THREE.PlaneGeometry(5.2, 2.0), paint); // H crossbar
   flat(new THREE.RingGeometry(7.4, 8.6, 32), yellow);
-  g.add(buildPadMarker());
   g.position.set(a.cx, a.elevation, a.cz);
   g.rotation.y = a.rotation;
   return g;
-}
-
-/**
- * Constant screen-size ring over a small pad so it can be found from far away. Named
- * 'padMarker'; the renderer fades it in with distance and hides it up close.
- */
-function buildPadMarker(): THREE.Sprite {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const ctx = c.getContext('2d')!;
-  ctx.lineWidth = 9;
-  ctx.strokeStyle = '#ffd23a';
-  ctx.beginPath();
-  ctx.arc(32, 32, 24, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.arc(32, 32, 7, 0, Math.PI * 2);
-  ctx.fill();
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, sizeAttenuation: false, fog: false, transparent: true, depthWrite: false }));
-  sprite.name = 'padMarker';
-  sprite.scale.set(0.028, 0.028, 1);
-  sprite.position.y = 3;
-  return sprite;
 }
 
 /** Corner markers and a windsock for each landing area. */

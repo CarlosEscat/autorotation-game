@@ -20,7 +20,6 @@ export class GameRenderer {
   private heli: HelicopterModel;
   private beacon: THREE.Group;
   private beaconColumn: THREE.MeshBasicMaterial;
-  private padMarkers: THREE.Sprite[] = [];
   private markers: THREE.Group | null = null;
   private gates: THREE.Mesh[] = [];
   private pads: THREE.Group[] = [];
@@ -28,12 +27,10 @@ export class GameRenderer {
   private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
-  private tmp = new THREE.Vector3();
-  private tmp2 = new THREE.Vector3();
   private rotorAngle = 0;
   private tailAngle = 0;
   private sweepAngle = 0;
-  mode: CameraMode = 'cockpit';
+  mode: CameraMode = 'chase';
   /** Real shadow map under the helicopter; when off, a blob shadow is drawn instead. */
   shadows = true;
 
@@ -73,9 +70,6 @@ export class GameRenderer {
     const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
-    this.scene.traverse((o) => {
-      if (o instanceof THREE.Sprite && o.name === 'padMarker') this.padMarkers.push(o);
-    });
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon);
@@ -220,13 +214,6 @@ export class GameRenderer {
     const bd = Math.hypot(s.pos.x - this.beacon.position.x, s.pos.z - this.beacon.position.z);
     this.beaconColumn.opacity = 0.22 * THREE.MathUtils.smoothstep(bd, 40, 250);
     this.beaconColumn.visible = this.beaconColumn.opacity > 0.005;
-
-    // Small pads get a fixed-size ring at range; it fades out before the pad itself is easy to see.
-    for (const m of this.padMarkers) {
-      const d = m.getWorldPosition(this.tmp).distanceTo(this.camera.getWorldPosition(this.tmp2));
-      m.material.opacity = THREE.MathUtils.smoothstep(d, 250, 450);
-      m.visible = m.material.opacity > 0.01;
-    }
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
     this.renderer.render(this.scene, this.camera);
