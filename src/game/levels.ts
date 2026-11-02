@@ -65,7 +65,7 @@ export interface TierDef {
 }
 
 export const TIERS: TierDef[] = [
-  { id: 'beginner', title: 'Beginner', blurb: 'Airfield basics: fly, hover, take off and land.' },
+  { id: 'beginner', title: 'Beginner', blurb: 'Airfield basics: fly, collective, hover, take off and land.' },
   { id: 'intermediate', title: 'Intermediate', blurb: 'Open fields and shrinking landing zones, engine running.' },
   { id: 'expert', title: 'Expert', blurb: 'Valley runs and tight spots. Fun first, still scored.' },
   { id: 'emergency', title: 'Emergency', blurb: 'The full autorotation sequence, ending in the checkride.' },
@@ -138,6 +138,13 @@ const RUNWAY_X = -180;
 const HOVER_SPOT = { x: RUNWAY_X + 8, z: -300 };
 /** The hover lesson's one ring, 25 m straight ahead of the start, facing the way you fly into it. */
 const HOVER_RING: Gate = { x: HOVER_SPOT.x, z: HOVER_SPOT.z - 25, agl: 7.5, radius: 7, facing: Math.PI };
+
+/** The collective lesson's height targets, in order. */
+const COLLECTIVE_TARGETS = [
+  { ft: 40, name: 'climb to the high mark' },
+  { ft: 15, name: 'come down to the low mark' },
+  { ft: 30, name: 'now up to the middle mark' },
+];
 
 // ---------- Intermediate: the open field (Big Meadow, centre -380, 360) ----------
 
@@ -281,6 +288,37 @@ const SPECS: LevelSpec[] = [
           'Last gate! Line up early and fly straight through.',
         ][next];
         return { text, progress: next / gates.length, nextGate: next };
+      });
+    },
+  },
+  {
+    id: 'collective',
+    tier: 'beginner',
+    title: 'Collective',
+    teaches: 'The collective alone: raise it to climb, lower it to descend, and ease it back to hold a height.',
+    config: { ...POWERED, altitudeFt: 10, start: { ...HOVER_SPOT, yaw: 0, settle: 'hover' } },
+    target: null,
+    gates: [],
+    makeObjective() {
+      let step = 0, held = 0;
+      return lesson(({ session, mode }, dt) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        if (session.touchdown) return fail(`Touched the ground. Raise the collective (${k.up}) a little to stay in the air.`);
+        if (s.agl * M_TO_FT > 80) return fail(`Too high (${ft(s.agl)} ft). Ease the collective down (${k.down}) sooner.`);
+        if (Math.hypot(s.pos.x - HOVER_SPOT.x, s.pos.z - HOVER_SPOT.z) > 60) return fail('Drifted too far. Leave the cyclic alone: this lesson is the collective only.');
+        if (s.time > 120) return fail('Out of time. Use short, gentle taps on the collective.');
+        const t = COLLECTIVE_TARGETS[step];
+        const alt = s.agl * M_TO_FT;
+        held = Math.abs(alt - t.ft) < 5 && Math.abs(s.verticalSpeed) < 1 ? held + dt : 0;
+        if (held >= 2) {
+          step++;
+          held = 0;
+          if (step === COLLECTIVE_TARGETS.length) return { ...pass(s.time < 40 ? 3 : s.time < 70 ? 2 : 1, 'Three heights, steady every time. Collective lesson done!'), };
+        }
+        const goal = COLLECTIVE_TARGETS[step];
+        const dir = alt < goal.ft - 5 ? `Raise the collective (${k.up})` : alt > goal.ft + 5 ? `Lower the collective (${k.down})` : 'Ease the collective back to hold this height';
+        return { text: `${dir}: ${goal.name} (${goal.ft} ft). You are at ${Math.round(alt)} ft.`, progress: step / COLLECTIVE_TARGETS.length };
       });
     },
   },
@@ -1050,7 +1088,7 @@ export const isUnlocked = (index: number, progress: Record<string, number>, gran
   lessonStates(progress, granted)[index] !== 'locked';
 
 /** Bump when levels move between tiers or change order, and add the old order to OLD_LAYOUTS. */
-export const TRAINING_LAYOUT = 4;
+export const TRAINING_LAYOUT = 5;
 const OLD_LAYOUTS = [
   // 1: one flat list of 8.
   ['basics', 'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride'],
@@ -1068,6 +1106,13 @@ const OLD_LAYOUTS = [
     'basics', 'hover', 'takeoff', 'landing',
     'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
     'lakerun', 'confined',
+    'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
+  ],
+  // 5: with Hill climb, before the Collective lesson joined Beginner.
+  [
+    'basics', 'hover', 'takeoff', 'landing',
+    'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
+    'lakerun', 'confined', 'hillclimb',
     'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
   ],
 ];

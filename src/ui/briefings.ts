@@ -73,6 +73,18 @@ const BASICS = svg(
     text(160, 152, 'Fly through the rings in order', INK, 'middle', 600),
 );
 
+const COLLECTIVE = svg(
+  ground() +
+    height(44, '40 ft') +
+    height(102, '15 ft') +
+    heli(130, 74, 0) +
+    arrow(130, 58, 130, 30) +
+    text(158, 36, 'W up', ACC, 'start') +
+    arrow(130, 90, 130, 118) +
+    text(158, 118, 'S down', ACC, 'start') +
+    text(160, 154, 'Collective only: hold each height', INK, 'middle', 600),
+);
+
 const HOVER = svg(
   `<rect width="320" height="160" style="fill:${GREEN}" opacity="0.08"/>` +
     heliTop(80, 86, 0) +
@@ -363,6 +375,16 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Fly through all three rings without getting too low. Faster runs earn more stars.',
     diagram: BASICS,
+  },
+  collective: {
+    goal: 'Hovering just above the runway. Use only the collective to climb and descend to three set heights.',
+    steps: (k) => [
+      `The <b>collective</b> sets how hard the rotor pulls up. Raise it (<b>${k.up}</b>) to climb, lower it (<b>${k.down}</b>) to descend.`,
+      'Use short, gentle taps. Let go and the helicopter stops climbing or sinking, so there is nothing to fight.',
+      'Watch the height readout, not the ground. Reach each target height and hold it for 2 seconds: 40 ft, then 15 ft, then 30 ft.',
+    ],
+    pass: 'Hold all three heights without touching down or climbing too high. Calm, quick work earns three stars.',
+    diagram: COLLECTIVE,
   },
   hover: {
     goal: 'A first hover a few feet off the runway. The helicopter holds the height for you: just turn with the pedals, then ease forward through a ring.',

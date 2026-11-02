@@ -220,7 +220,7 @@ describe('training levels', () => {
 
   it('lesson states: passed before Next up, exactly one Next up, locked after', () => {
     const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
-    const st = lessonStates({ basics: 3, hover: 1, field: 2 }, ['rings']);
+    const st = lessonStates({ basics: 3, collective: 1, hover: 1, field: 2 }, ['rings']);
     expect(st[0]).toBe('passed');
     expect(st[at('takeoff')]).toBe('next');
     expect(st.filter((s) => s === 'next')).toHaveLength(1);
@@ -266,20 +266,20 @@ describe('training levels', () => {
     const at = (id: string) => LEVELS.findIndex((l) => l.id === id);
     const expertDone = { basics: 3, hover: 3, takeoff: 3, landing: 3, rings: 2, windfield: 2, vtakeoff: 2, vlanding: 3, heliport: 2, lakerun: 2, confined: 1 };
     const granted = unlocksFromOldLayouts(expertDone);
-    expect(lessonStates(expertDone, granted)[at('hillclimb')]).toBe('next');
+    expect(isUnlocked(at('hillclimb'), expertDone, granted)).toBe(true);
     expect(isUnlocked(at('failure'), expertDone, granted)).toBe(true);
   });
 
   it('tiers: beginner, intermediate, expert, emergency in order, numbered within each tier', () => {
     expect(TIERS.map((t) => t.id)).toEqual(['beginner', 'intermediate', 'expert', 'emergency']);
     expect(LEVELS.map((l) => l.id)).toEqual([
-      'basics', 'hover', 'takeoff', 'landing',
+      'basics', 'collective', 'hover', 'takeoff', 'landing',
       'rings', 'windfield', 'vtakeoff', 'vlanding', 'heliport',
       'lakerun', 'confined', 'hillclimb',
       'failure', 'glide', 'field', 'flare', 'cushion', 'wind', 'checkride',
     ]);
     expect(LEVELS.map((l) => l.label)).toEqual([
-      'Beginner 1', 'Beginner 2', 'Beginner 3', 'Beginner 4',
+      'Beginner 1', 'Beginner 2', 'Beginner 3', 'Beginner 4', 'Beginner 5',
       'Intermediate 1', 'Intermediate 2', 'Intermediate 3', 'Intermediate 4', 'Intermediate 5',
       'Expert 1', 'Expert 2', 'Expert 3',
       'Emergency 1', 'Emergency 2', 'Emergency 3', 'Emergency 4', 'Emergency 5', 'Emergency 6', 'Emergency 7',
@@ -294,6 +294,11 @@ describe('training levels', () => {
 
   describe('beginner lessons', () => {
     const def = (id: string) => level(id);
+
+    it('collective: lowering to the ground fails', () => {
+      const { st } = runLevel('collective', (_s, c) => void (c.collective = 0));
+      expect(st.state).toBe('failed');
+    });
 
     it('hover: lowering the collective touches down and fails', () => {
       const { st } = runLevel('hover', (_s, c) => void (c.collective = 0.3));
