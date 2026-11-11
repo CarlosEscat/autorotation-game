@@ -7,7 +7,7 @@ import { FlightSession } from '../src/game/session';
 import { ALL_LEVELS, CONVERSION, HEAVY_LEVELS, LEVELS, ObjectiveStatus, gateY, heavyStates, nextLevelIndex } from '../src/game/levels';
 import { BRIEFINGS } from '../src/ui/briefings';
 import { configFromSettings, DEFAULT_SETTINGS, flightSummary, normalizeSettings } from '../src/ui/screens';
-import { createWorld } from '../src/world/world';
+import { LAKE, createWorld } from '../src/world/world';
 
 const env = { wind: v3(0, 0, 0), groundHeight: () => -1e5 };
 const world = createWorld();
@@ -236,5 +236,72 @@ describe('heavy helicopter: missions', () => {
     }
     expect(st.state).toBe('failed');
     expect(st.reason).toMatch(/Out of time/);
+  });
+});
+
+describe('heavy helicopter: water tank', () => {
+  const overLake = { x: LAKE.x - 110, z: LAKE.z };
+  const heavyAt = (altitudeFt: number, airspeedKt = 0) =>
+    new FlightSession(world, {
+      aircraft: 'heavy', altitudeFt, airspeedKt, windKt: 0, windFromDeg: 0, failureDelay: 1e9, freeFlight: true, difficulty: 'easy',
+      start: { ...overLake, yaw: 0, ...(airspeedKt === 0 ? { settle: 'hover' as const } : {}) },
+    });
+  /** Flies `seconds` holding the starting collective, with the drop control held or not. */
+  const run = (session: FlightSession, seconds: number, dropWater: boolean) => {
+    const c = { ...neutralControls(session.state.collective), dropWater };
+    for (let n = 0; n < 120 * seconds; n++) session.step(c);
+  };
+
+  it('starts full, and holding the drop control empties it in about six seconds', () => {
+    const session = heavyAt(1000, 90);
+    expect(session.waterLevel).toBe(1);
+    run(session, 2, false);
+    expect(session.waterLevel).toBe(1);
+    expect(session.dropping).toBe(false);
+    run(session, 3, true);
+    expect(session.dropping).toBe(true);
+    expect(session.waterLevel).toBeCloseTo(0.5, 1);
+    run(session, 4, true);
+    expect(session.waterLevel).toBe(0);
+    expect(session.dropping).toBe(false);
+  });
+
+  it('letting go stops the drop and keeps what is left', () => {
+    const session = heavyAt(1000, 90);
+    run(session, 1.5, true);
+    const left = session.waterLevel!;
+    run(session, 3, false);
+    expect(session.waterLevel).toBe(left);
+    expect(left).toBeCloseTo(0.75, 1);
+  });
+
+  it('refills hovering low over the lake, but not from high up or at speed', () => {
+    expect(world.surfaceAt(overLake.x, overLake.z)).toBe('water');
+    // Heights are given above the lake bed; put the wheels about 4 m above the water.
+    const bedToWater = world.waterLevel - world.heightAt(overLake.x, overLake.z);
+    const low = heavyAt((bedToWater + 4) * 3.28084);
+    low.water = 0;
+    run(low, 5, false);
+    expect(low.filling).toBe(true);
+    expect(low.waterLevel).toBeCloseTo(0.5, 1);
+    expect(low.crashed).toBe(false);
+
+    const high = heavyAt((bedToWater + 40) * 3.28084);
+    high.water = 0;
+    run(high, 3, false);
+    expect(high.waterLevel).toBe(0);
+
+    const fast = heavyAt((bedToWater + 4) * 3.28084, 60);
+    fast.water = 0;
+    run(fast, 1, false);
+    expect(fast.waterLevel).toBe(0);
+  });
+
+  it('the trainer has no tank', () => {
+    const session = new FlightSession(world, { altitudeFt: 1000, airspeedKt: 70, windKt: 0, windFromDeg: 0, failureDelay: 1e9, freeFlight: true });
+    expect(session.waterLevel).toBeNull();
+    run(session, 1, true);
+    expect(session.dropping).toBe(false);
+    expect(session.filling).toBe(false);
   });
 });

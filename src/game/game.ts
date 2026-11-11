@@ -233,6 +233,7 @@ export class Game {
     this.touch.setVisible(this.input.mode === 'touch');
     document.body.classList.toggle('touch', this.input.mode === 'touch');
     document.body.classList.add('flying');
+    document.body.classList.toggle('has-water', this.session.waterLevel !== null);
     this.state = 'flying';
     this.lowGTimer = 0;
   }
@@ -302,6 +303,7 @@ export class Game {
     }
 
     const s = session.state;
+    this.renderer.setWaterDrop(this.state === 'flying' && session.dropping);
     this.renderer.render(s, this.input.controls, { yaw: this.input.lookYaw, pitch: this.input.lookPitch }, this.state === 'paused' ? 0 : dt, session.tipOver);
 
     if (this.state === 'flying' || this.state === 'results') {
@@ -315,11 +317,18 @@ export class Game {
         l && this.state === 'flying'
           ? { title: `${l.def.label} · ${l.def.title}${countdown(l.status.timeLeft)}`, text: l.status.text, progress: l.status.progress }
           : this.free && this.saved.settings.hints && this.state === 'flying' && s.time < 8
-            ? { title: 'Fly around', text: 'The engine will not fail. Explore, land anywhere and take off again.', progress: null }
+            ? {
+                title: 'Fly around',
+                text:
+                  session.waterLevel === null
+                    ? 'The engine will not fail. Explore, land anywhere and take off again.'
+                    : `The engines will not fail. Hold ${this.input.mode === 'touch' ? 'H₂O' : 'Space'} to drop water; hover low over the lake to refill the tank.`,
+                progress: null,
+              }
             : null;
       this.hud.setLesson(lesson);
       this.hud.update(
-        { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint: null, lowG: this.lowGTimer > 0 },
+        { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint: null, lowG: this.lowGTimer > 0, water: this.waterFrame(session) },
         dt,
       );
       this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000, s.aircraft.soundPitch);
@@ -367,6 +376,11 @@ export class Game {
     this.state = 'results';
     this.touch.setVisible(false);
     this.screens.showLevelResult(l.def, l.status, nextLevelIndex(l.index) !== null);
+  }
+
+  private waterFrame(session: FlightSession) {
+    const level = session.waterLevel;
+    return level === null ? null : { level, state: session.dropping ? ('drop' as const) : session.filling ? ('fill' as const) : ('idle' as const) };
   }
 
   private finishFreeFlight(session: FlightSession) {

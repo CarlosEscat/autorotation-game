@@ -11,6 +11,8 @@ export interface ControlInputs {
   cyclicRoll: number;
   /** Anti-torque pedals, -1 = left … +1 = right. */
   pedal: number;
+  /** Held to open the water tank doors (types with a tank only). */
+  dropWater?: boolean;
 }
 
 export const neutralControls = (collective = 0.4): ControlInputs => ({

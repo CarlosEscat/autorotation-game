@@ -56,6 +56,10 @@ export const DEFAULT_CONFIG: FlightConfig = { altitudeFt: 1000, airspeedKt: 70, 
 /** Touchdown limits are multiplied by this in easy mode. */
 const EASY_LENIENCY = 2.5;
 
+/** The snorkel reaches the water from this height (m, wheels above the surface), at up to this ground speed (m/s). */
+export const SNORKEL_REACH = 8;
+export const SNORKEL_MAX_SPEED = 6;
+
 export const START = { x: 0, z: 1100, yaw: 0 };
 
 export type Phase = 'cruise' | 'autorotation' | 'ground' | 'done';
@@ -101,6 +105,12 @@ export class FlightSession {
   /** Free flight only: resting on the skids with the engine running. */
   private landed = false;
   private assistAnnounced = false;
+  /** Water on board, kg (always 0 for a type without a tank). Flights start with a full tank. */
+  water: number;
+  /** Water is leaving the tank this step. */
+  dropping = false;
+  /** The snorkel is drawing water from the lake this step. */
+  filling = false;
   private flare = new FlareModel();
 
   constructor(
@@ -108,6 +118,7 @@ export class FlightSession {
     readonly config: FlightConfig,
   ) {
     this.aircraft = AIRCRAFT_TYPES[config.aircraft ?? 'light'].spec;
+    this.water = this.aircraft.waterCapacity;
     const from = config.windFromDeg * DEG;
     // Air moves toward the opposite of where it comes from. North = -Z, east = +X.
     this.wind = scale(v3(-Math.sin(from), 0, Math.cos(from)), config.windKt / MS_TO_KT);
@@ -201,6 +212,7 @@ export class FlightSession {
       if (this.easy && this.config.cushion !== false) this.autoCushion(dt);
     }
     this.rec.record(s, dt);
+    this.stepWater(c, dt);
 
     // In-flight structural limits.
     if (s.rpmPct > 115) this.flightDamage += (s.rpmPct > 125 ? 25 : 8) * dt;
@@ -219,6 +231,27 @@ export class FlightSession {
     if (contact && this.config.freeFlight && this.phase === 'cruise') this.onPoweredContact(contact, dt);
     else if (contact) this.onTouchdown(contact);
     else this.landed = false;
+  }
+
+  /**
+   * Water tank: holding the drop control empties it at a steady rate; hovering low and slow over
+   * open water refills it through the snorkel. The water's weight is not modelled.
+   */
+  private stepWater(c: ControlInputs, dt: number) {
+    const A = this.aircraft;
+    const s = this.state;
+    this.dropping = !!c.dropWater && this.water > 0 && !this.landed;
+    if (this.dropping) this.water = Math.max(0, this.water - A.waterDropRate * dt);
+    const overWater = s.pos.y - A.skidHeight - this.world.waterLevel;
+    this.filling =
+      !this.dropping && !c.dropWater && this.water < A.waterCapacity && overWater < SNORKEL_REACH && s.groundSpeed < SNORKEL_MAX_SPEED &&
+      this.world.surfaceAt(s.pos.x, s.pos.z) === 'water';
+    if (this.filling) this.water = Math.min(A.waterCapacity, this.water + A.waterFillRate * dt);
+  }
+
+  /** Share of the tank that is full, 0..1, or null for a type without a tank. */
+  get waterLevel(): number | null {
+    return this.aircraft.waterCapacity > 0 ? this.water / this.aircraft.waterCapacity : null;
   }
 
   /** Free flight: a touchdown that would not crash leaves the helicopter sitting on its skids. */

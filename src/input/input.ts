@@ -9,7 +9,7 @@ export type Action = 'cycleTarget' | 'camera' | 'pause' | 'restart' | 'mute' | '
  * drive exactly the same flight model.
  */
 export class InputManager {
-  readonly controls: ControlInputs = { collective: 0.4, cyclicPitch: 0, cyclicRoll: 0, pedal: 0 };
+  readonly controls: ControlInputs = { collective: 0.4, cyclicPitch: 0, cyclicRoll: 0, pedal: 0, dropWater: false };
   /** Which device was used last; the HUD uses it to word hints. */
   mode: 'keyboard' | 'touch' = 'keyboard';
 
@@ -18,6 +18,9 @@ export class InputManager {
   keyRoll = 0;
   keyPedal = 0;
   keyCollective = 0; // -1 lowering, +1 raising
+  /** Water drop held, on the keyboard or the touch button. */
+  keyDrop = false;
+  touchDrop = false;
   private smPitch = 0;
   private smRoll = 0;
   private smPedal = 0;
@@ -78,6 +81,7 @@ export class InputManager {
     const touch = this.touchActive;
     c.cyclicPitch = clamp(touch ? this.touchPitch : this.smPitch, -1, 1);
     c.cyclicRoll = clamp(touch ? this.touchRoll : this.smRoll, -1, 1);
+    c.dropWater = this.keyDrop || this.touchDrop;
     c.pedal = clamp(this.touchPedal !== 0 ? this.touchPedal : this.smPedal, -1, 1);
 
     if (!this.looking) {

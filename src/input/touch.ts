@@ -23,6 +23,7 @@ export class TouchControls {
       <div class="tc-pedals"><button class="tc-btn tc-pedal" data-pedal="-1" aria-label="Left pedal">◀</button><button class="tc-btn tc-pedal" data-pedal="1" aria-label="Right pedal">▶</button></div>
       <div class="tc-stick"><div class="tc-label">CYCLIC</div><div class="tc-base"><div class="tc-knob"></div></div></div>
       <div class="tc-actions">
+        <button class="tc-btn tc-water" aria-label="Drop water (hold)">H₂O</button>
         <button class="tc-btn" data-action="cycleTarget">TGT</button>
         <button class="tc-btn" data-action="camera">CAM</button>
         <button class="tc-btn" data-action="mute" aria-label="Sound off">SND</button>
@@ -43,6 +44,10 @@ export class TouchControls {
         up: () => (this.input.touchPedal = 0),
       });
     }
+    track(this.root.querySelector<HTMLElement>('.tc-water')!, {
+      down: () => (this.input.touchDrop = true),
+      up: () => (this.input.touchDrop = false),
+    });
     for (const b of this.root.querySelectorAll<HTMLElement>('[data-action]')) {
       b.addEventListener('pointerdown', (e) => {
         e.preventDefault();

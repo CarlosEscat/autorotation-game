@@ -6,6 +6,7 @@ export const KEY_BINDINGS: { keys: string; action: string }[] = [
   { keys: '↑ / ↓', action: 'Cyclic forward (nose down) / aft (nose up)' },
   { keys: '← / →', action: 'Cyclic left / right (bank)' },
   { keys: 'A / D', action: 'Pedals (yaw), optional' },
+  { keys: 'Space', action: 'Drop water (heavy helicopter, hold)' },
   { keys: 'T', action: 'Select next landing area ahead' },
   { keys: 'C', action: 'Cockpit / chase camera' },
   { keys: 'Mouse drag', action: 'Look around' },
@@ -23,6 +24,7 @@ export function attachKeyboard(input: InputManager, target: Window = window) {
     input.keyPitch = axis(['ArrowUp', 'KeyI'], ['ArrowDown', 'KeyK']);
     input.keyRoll = axis(['ArrowLeft', 'KeyJ'], ['ArrowRight', 'KeyL']);
     input.keyPedal = axis(['KeyA'], ['KeyD']);
+    input.keyDrop = held.has('Space');
   };
 
   const flightKeys = new Set(['KeyW', 'KeyS', 'KeyA', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyI', 'KeyJ', 'KeyK', 'KeyL', 'Space']);

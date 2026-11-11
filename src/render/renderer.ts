@@ -3,6 +3,7 @@ import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircr
 import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
+import { WaterSpray } from './waterSpray';
 import { Gate, Pad, gateY } from '../game/levels';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
@@ -30,6 +31,8 @@ export class GameRenderer {
   private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
+  private spray = new WaterSpray();
+  private dropping = false;
   private rotorAngle = 0;
   private tailAngle = 0;
   private sweepAngle = 0;
@@ -75,7 +78,7 @@ export class GameRenderer {
     this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
-    this.scene.add(this.beacon);
+    this.scene.add(this.beacon, this.spray.points);
 
     this.heli = this.modelFor(AIRCRAFT);
     this.heli.eye.add(this.camera);
@@ -112,6 +115,11 @@ export class GameRenderer {
     this.heli.root.visible = true;
     this.shadow.scale.setScalar(spec.rotorRadius / AIRCRAFT.rotorRadius);
     this.setMode(this.mode);
+  }
+
+  /** Whether water is leaving the tank; the spray is drawn by the next `render`. */
+  setWaterDrop(on: boolean) {
+    this.dropping = on;
   }
 
   /** Windsocks depend on the wind of the current flight. */
@@ -184,6 +192,11 @@ export class GameRenderer {
     const h = this.heli;
     h.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     h.root.rotation.set(s.pitch, s.yaw, -s.roll - tipOver);
+
+    // Water leaves the belly tank, just below the reference point.
+    const outlet = h.root.localToWorld(new THREE.Vector3(0, -A.skidHeight + 0.4, -0.4));
+    const ground = (x: number, z: number) => Math.max(this.world.heightAt(x, z), this.world.surfaceAt(x, z) === 'water' ? this.world.waterLevel : -1e9);
+    this.spray.update(frameDt, this.dropping, outlet, new THREE.Vector3(s.vel.x, s.vel.y, s.vel.z), ground);
 
     this.rotorAngle += s.omega * frameDt;
     this.tailAngle += s.omega * 5.5 * frameDt;

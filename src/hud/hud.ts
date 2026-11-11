@@ -22,6 +22,8 @@ export interface HudFrame {
   windFromDeg: number;
   hint: string | null;
   lowG: boolean;
+  /** Water tank: share full and what it is doing, or null for a type without a tank. */
+  water?: { level: number; state: 'idle' | 'drop' | 'fill' } | null;
 }
 
 /** Arcade-style HTML overlay. Purely presentational. */
@@ -54,6 +56,10 @@ export class Hud {
         <div class="gauge coll">
           <div class="g-label">COLL</div>
           <div class="coll-track"><div class="coll-fill"></div></div>
+        </div>
+        <div class="gauge water">
+          <div class="g-label" data-k="wlabel">WATER</div>
+          <div class="coll-track"><div class="water-fill"></div></div>
         </div>
       </div>
       <div class="hud-right">
@@ -125,6 +131,16 @@ export class Hud {
     const rpmState = rpm < 80 || rpm > RPM.overspeed ? 'bad' : rpm < RPM.lowWarn || rpm > RPM.highWarn ? 'warn' : 'good';
     e.rpm.dataset.s = rpmState;
     this.q('.coll-fill').style.height = `${s.collective * 100}%`;
+
+    const w = f.water ?? null;
+    const tank = this.q('.gauge.water');
+    tank.classList.toggle('on', !!w);
+    if (w) {
+      this.q('.water-fill').style.height = `${w.level * 100}%`;
+      tank.dataset.s = w.state !== 'idle' ? w.state : w.level === 0 ? 'empty' : 'idle';
+      const label = w.state === 'fill' ? 'FILL' : w.level === 0 ? 'EMPTY' : 'WATER';
+      if (e.wlabel.textContent !== label) e.wlabel.textContent = label;
+    }
 
     const kt = s.airspeed * MS_TO_KT;
     e.ias.textContent = kt.toFixed(0);

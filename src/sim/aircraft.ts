@@ -57,6 +57,11 @@ export const AIRCRAFT = {
   gearRear: 1.4, // m behind the reference point
   bodyRadius: 1.6, // m
 
+  // Water tank (firefighting types only)
+  waterCapacity: 0, // kg
+  waterDropRate: 0, // kg/s while the doors are open
+  waterFillRate: 0, // kg/s through the snorkel, hovering low over open water
+
   bladeChord: 0.28, // m, for the model
   soundPitch: 1, // rotor sound relative to the light helicopter
 } as const;
@@ -115,6 +120,10 @@ export const HEAVY: AircraftSpec = {
   gearFront: 1.5,
   gearRear: 5.5,
   bodyRadius: 2.4,
+
+  waterCapacity: 3000,
+  waterDropRate: 500, // a full tank in six seconds
+  waterFillRate: 300, // ten seconds to fill
 
   bladeChord: 0.5,
   soundPitch: 0.62,
