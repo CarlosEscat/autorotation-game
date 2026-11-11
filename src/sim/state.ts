@@ -1,3 +1,4 @@
+import { AIRCRAFT, AircraftSpec } from './aircraft';
 import { Vec3, v3 } from './vec';
 
 /** Pilot inputs, produced by any input device and consumed by the flight model. */
@@ -28,6 +29,8 @@ export interface FlightEnvironment {
 }
 
 export interface HelicopterState {
+  /** The helicopter type being flown; never changes during a flight. */
+  aircraft: AircraftSpec;
   time: number;
   pos: Vec3; // reference point (roughly the CG), world frame, m
   vel: Vec3; // inertial velocity, m/s
@@ -67,9 +70,11 @@ export function createState(init: {
   omega: number;
   inducedVel: number;
   thrust: number;
+  aircraft?: AircraftSpec;
 }): HelicopterState {
   const fwd = v3(-Math.sin(init.yaw), 0, -Math.cos(init.yaw));
   return {
+    aircraft: init.aircraft ?? AIRCRAFT,
     time: 0,
     pos: { ...init.pos },
     vel: v3(fwd.x * init.speed, 0, fwd.z * init.speed),

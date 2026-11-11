@@ -1,4 +1,4 @@
-import { AIRCRAFT as A, GRAVITY } from '../sim/aircraft';
+import { GRAVITY } from '../sim/aircraft';
 import { HelicopterState } from '../sim/state';
 import { Vec3, clamp, smoothstep } from '../sim/vec';
 
@@ -60,7 +60,7 @@ export class FlareModel {
     const blend = smoothstep(F.ZONE + 6, F.ZONE, s.agl);
     if (blend <= 0) return;
 
-    const rpm = (s.omega / A.rotorOmega0) * 100;
+    const rpm = (s.omega / s.aircraft.rotorOmega0) * 100;
     const weak = smoothstep(F.WEAK_ROTOR[0], F.WEAK_ROTOR[1], rpm);
     const slow = 1 - Math.min(speed, 25) / 25;
     const ground = 1 - F.GROUND_EFFECT * smoothstep(10, 0, s.agl);
@@ -90,7 +90,7 @@ export class FlareModel {
 
     // Rotor RPM: keep the flight model's gains, replace its losses with the cushion's cost.
     const physicsOmega = s.omega;
-    const modelOmega = Math.max(physicsOmega, omegaBefore) - (used * F.CUSHION_RPM_COST[easy ? 'easy' : 'normal'] * A.rotorOmega0 * dt) / 100;
+    const modelOmega = Math.max(physicsOmega, omegaBefore) - (used * F.CUSHION_RPM_COST[easy ? 'easy' : 'normal'] * s.aircraft.rotorOmega0 * dt) / 100;
     s.omega = physicsOmega + (modelOmega - physicsOmega) * blend;
   }
 }

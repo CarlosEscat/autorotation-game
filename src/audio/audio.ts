@@ -65,14 +65,15 @@ export class AudioEngine {
     void this.ctx?.suspend();
   }
 
-  update(rpmPct: number, lowRpmWarning: boolean, time: number) {
+  /** `pitch` lowers the rotor sound for a bigger, slower-turning rotor (1 = the light helicopter). */
+  update(rpmPct: number, lowRpmWarning: boolean, time: number, pitch = 1) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const r = Math.max(0, rpmPct) / 100;
     // Two blades: blade-passage frequency = 2 × rotor revolutions per second.
-    this.rotorLfo.frequency.setTargetAtTime(Math.max(0.5, 12.7 * r), t, 0.05);
+    this.rotorLfo.frequency.setTargetAtTime(Math.max(0.5, 12.7 * r * pitch), t, 0.05);
     this.rotorGain.gain.setTargetAtTime(0.28 * Math.min(1, r * 1.1), t, 0.1);
-    this.rotorFilter.frequency.setTargetAtTime(250 + 300 * r, t, 0.1);
+    this.rotorFilter.frequency.setTargetAtTime((250 + 300 * r) * (0.5 + 0.5 * pitch), t, 0.1);
     // Low-RPM horn: steady pulsing tone.
     const on = lowRpmWarning && Math.floor(time * 4) % 2 === 0;
     this.hornGain.gain.setTargetAtTime(on ? 0.07 : 0, t, 0.01);

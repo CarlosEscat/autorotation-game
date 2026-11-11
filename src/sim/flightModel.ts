@@ -1,4 +1,4 @@
-import { AIRCRAFT as A, AIR_DENSITY as RHO, DISK_AREA, GRAVITY, RPM } from './aircraft';
+import { AIRCRAFT, AIR_DENSITY as RHO, AircraftSpec, GRAVITY, RPM, diskArea } from './aircraft';
 import { ControlInputs, FlightEnvironment, HelicopterState, createState } from './state';
 import {
   BodyAxes,
@@ -43,6 +43,7 @@ export function rotorAero(
   axes: BodyAxes,
   inducedVel: number,
   hubAgl: number,
+  A: AircraftSpec = AIRCRAFT,
 ): RotorResult {
   const vn = dot(vAir, axes.up); // > 0: moving "up the shaft" (air flows down through the disk)
   const inPlane = len(sub(vAir, scale(axes.up, vn)));
@@ -75,7 +76,7 @@ export function rotorAero(
     (1 + A.profileAlphaK * alpha * alpha + 20 * over) *
     (1 + 6 * (1 - rpmHealth));
 
-  const vh2 = thrust / (2 * RHO * DISK_AREA);
+  const vh2 = thrust / (2 * RHO * diskArea(A));
   const inducedTarget = vh2 > 0 ? vh2 / Math.sqrt(inPlane * inPlane + vh2) : 0;
 
   return {
@@ -88,6 +89,7 @@ export function rotorAero(
 
 /** Advance the helicopter by one fixed step. Mutates `s`. */
 export function stepFlight(s: HelicopterState, c: ControlInputs, env: FlightEnvironment, dt = SIM_DT): void {
+  const A = s.aircraft;
   const axes = bodyAxes(s.yaw, s.pitch, s.roll);
   const vAir = sub(s.vel, env.wind);
   const ground = env.groundHeight(s.pos.x, s.pos.z);
@@ -96,17 +98,17 @@ export function stepFlight(s: HelicopterState, c: ControlInputs, env: FlightEnvi
   // With the engine running, pulling past the power available would only droop the rotor.
   // Like a pilot flying to the torque limit, the collective stops where the engine runs out.
   s.collective = clamp(c.collective, 0, 1);
-  let rotor = rotorAero(s.omega, s.collective, vAir, axes, s.inducedVel, hubAgl);
+  let rotor = rotorAero(s.omega, s.collective, vAir, axes, s.inducedVel, hubAgl, A);
   const powerCap = A.engineMaxPower * A.powerLimitMargin;
   if (s.engineRunning && rotor.powerRequired > powerCap) {
     let lo = 0, hi = s.collective;
     for (let i = 0; i < 12; i++) {
       const mid = (lo + hi) / 2;
-      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl).powerRequired > powerCap) hi = mid;
+      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl, A).powerRequired > powerCap) hi = mid;
       else lo = mid;
     }
     s.collective = lo;
-    rotor = rotorAero(s.omega, lo, vAir, axes, s.inducedVel, hubAgl);
+    rotor = rotorAero(s.omega, lo, vAir, axes, s.inducedVel, hubAgl, A);
   }
   s.inducedVel += (rotor.inducedTarget - s.inducedVel) * Math.min(1, dt / 0.12);
   s.thrust = rotor.thrust;
@@ -159,6 +161,7 @@ export function stepFlight(s: HelicopterState, c: ControlInputs, env: FlightEnvi
 }
 
 export function updateDerived(s: HelicopterState, env: FlightEnvironment, rotor?: RotorResult): void {
+  const A = s.aircraft;
   const vAir = sub(s.vel, env.wind);
   s.airspeed = len(vAir);
   s.groundSpeed = hlen(s.vel);
@@ -176,7 +179,7 @@ export function updateDerived(s: HelicopterState, env: FlightEnvironment, rotor?
 export function failEngine(s: HelicopterState): void {
   if (!s.engineRunning) return;
   s.engineRunning = false;
-  s.yawKick = A.failureYawKick;
+  s.yawKick = s.aircraft.failureYawKick;
 }
 
 /**
@@ -184,7 +187,8 @@ export function failEngine(s: HelicopterState): void {
  * thrust tilts forward just enough to balance fuselage drag, and collective is
  * solved from the same blade-element/momentum relations the rotor model uses.
  */
-export function trimmedState(opts: { x: number; y: number; z: number; yaw: number; airspeed: number; wind: Vec3 }): HelicopterState {
+export function trimmedState(opts: { x: number; y: number; z: number; yaw: number; airspeed: number; wind: Vec3; aircraft?: AircraftSpec }): HelicopterState {
+  const A = opts.aircraft ?? AIRCRAFT;
   const V = opts.airspeed;
   const weight = A.mass * GRAVITY;
   const drag = 0.5 * RHO * A.dragAreaForward * V * V;
@@ -192,7 +196,7 @@ export function trimmedState(opts: { x: number; y: number; z: number; yaw: numbe
   const thrust = Math.hypot(weight, drag);
   const vn = V * Math.sin(tilt);
   const inPlane = V * Math.cos(tilt);
-  const vh2 = thrust / (2 * RHO * DISK_AREA);
+  const vh2 = thrust / (2 * RHO * diskArea(A));
   const vi = vh2 / Math.sqrt(inPlane * inPlane + vh2);
   const alpha = thrust / (A.kThrust * A.rotorOmega0 ** 2);
   const theta = alpha + (A.inflowGain * (vi + vn)) / (A.rotorOmega0 * A.rotorRadius);
@@ -207,6 +211,7 @@ export function trimmedState(opts: { x: number; y: number; z: number; yaw: numbe
     omega: A.rotorOmega0,
     inducedVel: vi,
     thrust,
+    aircraft: A,
   });
   const fwd = v3(-Math.sin(opts.yaw), 0, -Math.cos(opts.yaw));
   s.vel = add(scale(fwd, V), opts.wind);

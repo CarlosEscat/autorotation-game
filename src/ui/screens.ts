@@ -1,10 +1,12 @@
 import { KEY_BINDINGS } from '../input/keyboard';
 import { Difficulty, FlightConfig } from '../game/session';
-import { LEVELS, LessonState, LevelDef, ObjectiveStatus, TIERS, lessonStates, tierOf } from '../game/levels';
+import { AIRCRAFT_TYPES, AircraftId } from '../sim/aircraft';
+import { ALL_LEVELS, HEAVY_LEVELS, HEAVY_TIER, LEVELS, LessonState, LevelDef, ObjectiveStatus, TIERS, TierDef, heavyStates, lessonStates, tierOf } from '../game/levels';
 import { KEY_WORDS, Mode } from '../game/hints';
 import { BRIEFINGS } from './briefings';
 
 export interface Settings {
+  aircraft: AircraftId;
   difficulty: Difficulty;
   altitudeFt: number;
   airspeedKt: number;
@@ -18,6 +20,10 @@ export const ALTITUDES = [
   { ft: 1500, caption: 'Room to explore' },
 ];
 export const AIRSPEEDS = [60, 75, 90];
+/** The heavy helicopter starts faster: the same three keys, with these speeds. */
+const HEAVY_AIRSPEEDS = [90, 120, 150];
+/** Start airspeed for the chosen helicopter. */
+export const startAirspeed = (s: Settings) => (s.aircraft === 'heavy' ? HEAVY_AIRSPEEDS[AIRSPEEDS.indexOf(s.airspeedKt)] ?? HEAVY_AIRSPEEDS[0] : s.airspeedKt);
 export const WIND_PRESETS: Record<Settings['wind'], { kt: number; from: number; label: string }> = {
   calm: { kt: 0, from: 330, label: 'Calm' },
   light: { kt: 10, from: 330, label: '10 kt' },
@@ -25,7 +31,7 @@ export const WIND_PRESETS: Record<Settings['wind'], { kt: number; from: number; 
 };
 const DIFFICULTIES: Record<Difficulty, string> = { easy: 'Arcade', normal: 'Realistic' };
 
-export const DEFAULT_SETTINGS: Settings = { difficulty: 'easy', altitudeFt: 1500, airspeedKt: 90, wind: 'strong', hints: true };
+export const DEFAULT_SETTINGS: Settings = { aircraft: 'light', difficulty: 'easy', altitudeFt: 1500, airspeedKt: 90, wind: 'strong', hints: true };
 
 const nearest = (opts: number[], v: number) => opts.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
 
@@ -33,6 +39,7 @@ const nearest = (opts: number[], v: number) => opts.reduce((a, b) => (Math.abs(b
 export function normalizeSettings(s: Partial<Settings> = {}): Settings {
   const d = DEFAULT_SETTINGS;
   return {
+    aircraft: s.aircraft === 'heavy' ? 'heavy' : 'light',
     difficulty: s.difficulty === 'normal' ? 'normal' : 'easy',
     altitudeFt: nearest(ALTITUDES.map((a) => a.ft), Number(s.altitudeFt) || d.altitudeFt),
     airspeedKt: nearest(AIRSPEEDS, Number(s.airspeedKt) || d.airspeedKt),
@@ -44,14 +51,14 @@ export function normalizeSettings(s: Partial<Settings> = {}): Settings {
 /** Free flight: the engine never fails. */
 export function configFromSettings(s: Settings): FlightConfig {
   const w = WIND_PRESETS[s.wind];
-  return { altitudeFt: s.altitudeFt, airspeedKt: s.airspeedKt, windKt: w.kt, windFromDeg: w.from, failureDelay: 1e9, difficulty: s.difficulty };
+  return { aircraft: s.aircraft, altitudeFt: s.altitudeFt, airspeedKt: startAirspeed(s), windKt: w.kt, windFromDeg: w.from, failureDelay: 1e9, difficulty: s.difficulty };
 }
 
 const POINTS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const windText = (w: { kt: number; from: number }) => (w.kt === 0 ? 'Calm' : `${w.kt} kt from ${POINTS[Math.round(w.from / 22.5) % 16]}`);
 
-/** "1500 ft · 90 kt · 15 kt from NNW · Arcade" */
-export const flightSummary = (s: Settings) => `${s.altitudeFt} ft · ${s.airspeedKt} kt · ${windText(WIND_PRESETS[s.wind])} · ${DIFFICULTIES[s.difficulty]}`;
+/** "Trainer · 1500 ft · 90 kt · 15 kt from NNW · Arcade" */
+export const flightSummary = (s: Settings) => `${AIRCRAFT_TYPES[s.aircraft].name} · ${s.altitudeFt} ft · ${startAirspeed(s)} kt · ${windText(WIND_PRESETS[s.wind])} · ${DIFFICULTIES[s.difficulty]}`;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -187,7 +194,7 @@ export class Screens {
         <div class="hazard" aria-hidden="true"></div>
         <p class="tagline">Your engine is about to quit. Get it down in one piece.</p>
         <button class="key main" data-a="training"><span class="lamp"></span><span class="legend">Training</span><span class="desc">Guided lessons in four tiers, from first hover to checkride.</span></button>
-        <button class="key main" data-a="free"><span class="lamp"></span><span class="legend">Free flight</span><span class="desc">Choose altitude, speed and wind. Land it your way.</span></button>
+        <button class="key main" data-a="free"><span class="lamp"></span><span class="legend">Free flight</span><span class="desc">Choose your helicopter, altitude, speed and wind. Land it your way.</span></button>
         <button class="key small" data-a="howto"><span class="legend">How to fly</span></button>
         <p class="disclaimer">An educational arcade prototype. Not a flight-training device, and not a source of approved emergency procedures.</p>
       </div>`;
@@ -207,9 +214,10 @@ export class Screens {
       </svg>`;
     this.free.innerHTML = `<div class="panel ff-panel">${SCREWS}
       <header class="sub-head">${backKey()}<h2 class="screen-title">Free flight</h2></header>
+      ${field('heli', 'Helicopter', Object.values(AIRCRAFT_TYPES).map((a) => seg('heli', a.id, `<span class="alt-val">${esc(a.name)}</span><span class="desc">${esc(a.blurb)}</span>`, 'tall')).join(''))}
       ${field('alt', 'Start altitude', ALTITUDES.map((a) => seg('alt', a.ft, `<span class="alt-val">${a.ft}<small> ft</small></span><span class="desc">${esc(a.caption)}</span>`, 'tall')).join(''))}
       <div class="ff-grid">
-        ${field('ias', 'Airspeed', AIRSPEEDS.map((v) => seg('ias', v, `<span class="legend">${v} kt</span>`)).join(''))}
+        ${field('ias', 'Airspeed', AIRSPEEDS.map((v) => seg('ias', v, `<span class="legend ias-label">${v} kt</span>`)).join(''))}
         ${field('wind', 'Wind', Object.entries(WIND_PRESETS).map(([k, w]) => seg('wind', k, `<span class="legend">${w.label}</span>`)).join(''), compass)}
         ${field('diff', 'Difficulty', Object.entries(DIFFICULTIES).map(([k, l]) => seg('diff', k, `<span class="legend">${l}</span>`)).join(''))}
       </div>
@@ -221,7 +229,8 @@ export class Screens {
 
   private pick(f: string, v: string) {
     const s = this.settings;
-    if (f === 'alt') s.altitudeFt = Number(v);
+    if (f === 'heli') s.aircraft = v as AircraftId;
+    else if (f === 'alt') s.altitudeFt = Number(v);
     else if (f === 'ias') s.airspeedKt = Number(v);
     else if (f === 'wind') s.wind = v as Settings['wind'];
     else if (f === 'diff') s.difficulty = v as Difficulty;
@@ -231,8 +240,10 @@ export class Screens {
   /** Light the keys that match the current settings, and update the summary and compass. */
   private syncFreeFlight() {
     const s = this.settings;
-    const cur: Record<string, string> = { alt: String(s.altitudeFt), ias: String(s.airspeedKt), wind: s.wind, diff: s.difficulty };
+    const cur: Record<string, string> = { heli: s.aircraft, alt: String(s.altitudeFt), ias: String(s.airspeedKt), wind: s.wind, diff: s.difficulty };
     for (const k of this.free.querySelectorAll<HTMLElement>('[data-a="pick"]')) k.setAttribute('aria-pressed', String(cur[k.dataset.f!] === k.dataset.v));
+    // The airspeed keys keep their place but show the speeds of the chosen helicopter.
+    this.free.querySelectorAll<HTMLElement>('.ias-label').forEach((el, i) => (el.textContent = `${startAirspeed({ ...s, airspeedKt: AIRSPEEDS[i] })} kt`));
     const w = WIND_PRESETS[s.wind];
     const compass = this.free.querySelector<SVGElement>('.compass')!;
     compass.classList.toggle('calm', w.kt === 0);
@@ -300,47 +311,51 @@ export class Screens {
   /** The training path as four tier columns; see `lessonStates` for passed / next / locked. */
   showTraining(progress: Record<string, number>, granted: readonly string[] = []) {
     const states = lessonStates(progress, granted);
+    const heavy = heavyStates(progress);
+    const stateOf = (l: LevelDef) => (l.tier === 'heavy' ? heavy[HEAVY_LEVELS.indexOf(l)] : states[LEVELS.indexOf(l)]);
     const lesson = (l: LevelDef) => {
-      const i = LEVELS.indexOf(l);
-      const st = states[i];
+      const i = ALL_LEVELS.indexOf(l);
+      const st = stateOf(l);
       const extra: Record<LessonState, string> = {
         passed: stars(progress[l.id] ?? 0),
         next: '<span class="tag">Next up</span>',
         open: '',
-        locked: `<span class="ls-lock">Pass ${esc(LEVELS[i - 1]?.title ?? '')} to unlock</span>`,
+        locked: `<span class="ls-lock">Pass ${esc(ALL_LEVELS[i - 1]?.title ?? '')} to unlock</span>`,
       };
       return `<button class="key lesson-key ${st}" data-a="brief" data-i="${i}"${st === 'locked' ? ' disabled' : ''}>
         <span class="led" aria-hidden="true"></span>
         <span class="ls-body"><span class="ls-title">${esc(l.title)}</span>${extra[st]}</span>
         ${st === 'locked' ? `<span class="ls-icon">${ICON.lock}</span>` : ''}</button>`;
     };
-    const cols = TIERS.map((t) => {
-      const levels = LEVELS.filter((l) => l.tier === t.id);
-      const passed = levels.filter((l) => states[LEVELS.indexOf(l)] === 'passed').length;
-      const segs = levels.map((l) => `<span class="seg-led ${states[LEVELS.indexOf(l)]}"></span>`).join('');
-      return `<section class="tier-col" aria-labelledby="tier-${t.id}">
+    const col = (t: TierDef) => {
+      const levels = ALL_LEVELS.filter((l) => l.tier === t.id);
+      const passed = levels.filter((l) => stateOf(l) === 'passed').length;
+      const segs = levels.map((l) => `<span class="seg-led ${stateOf(l)}"></span>`).join('');
+      return `<section class="tier-col tier-${t.id}" aria-labelledby="tier-${t.id}">
         <div class="tier-top"><h3 class="tier-name${t.id === 'emergency' ? ' emergency' : ''}" id="tier-${t.id}">${esc(t.title)}</h3>
           <span class="tier-count" aria-label="${passed} of ${levels.length} passed">${passed} / ${levels.length}</span></div>
         <p class="tier-desc">${esc(t.blurb)}</p>
         <div class="tier-segs" aria-hidden="true">${segs}</div>
         <div class="lessons">${levels.map(lesson).join('')}</div>
       </section>`;
-    }).join('');
+    };
+    const cols = TIERS.map(col).join('');
     this.training.innerHTML = `<div class="panel tr-panel">${SCREWS}
       <header class="sub-head">${backKey()}<div><h2 class="screen-title">Training</h2>
         <p class="subtitle">Four tiers, from first hover to checkride. Earn up to three stars per lesson.</p></div></header>
       <div class="tiers">${cols}</div>
+      <div class="heavy-row">${col(HEAVY_TIER)}</div>
     </div>`;
     this.show('training');
   }
 
   /** What the lesson is about, before it starts. */
   showBriefing(index: number, mode: Mode) {
-    const def = LEVELS[index];
+    const def = ALL_LEVELS[index];
     const b = BRIEFINGS[def.id];
     const steps = b.steps(KEY_WORDS[mode]).map((t) => `<li>${t}</li>`).join('');
     this.briefing.innerHTML = `<div class="panel wide brief-panel">${SCREWS}
-      <div class="lvl-num">${esc(tierOf(def).title)} · Lesson ${def.num} of ${LEVELS.filter((l) => l.tier === def.tier).length}</div>
+      <div class="lvl-num">${esc(tierOf(def).title)} · ${def.tier === 'heavy' ? 'Mission' : 'Lesson'} ${def.num} of ${ALL_LEVELS.filter((l) => l.tier === def.tier).length}</div>
       <h2>${esc(def.title)}</h2>
       <p class="brief-goal">${esc(b.goal)}</p>
       <div class="brief-body">
@@ -355,7 +370,8 @@ export class Screens {
 
   showLevelResult(def: LevelDef, status: ObjectiveStatus, hasNext: boolean) {
     const passed = status.state === 'passed';
-    const title = !passed ? 'TRY AGAIN' : hasNext ? 'LEVEL PASSED' : 'TRAINING COMPLETE';
+    const heavy = def.tier === 'heavy';
+    const title = !passed ? 'TRY AGAIN' : heavy ? 'MISSION PASSED' : hasNext ? 'LEVEL PASSED' : 'TRAINING COMPLETE';
     const first = passed && hasNext
       ? '<button class="btn primary" data-a="next">Next level <small>(Enter)</small></button><button class="btn" data-a="restart">Retry</button>'
       : `<button class="btn primary" data-a="restart">Retry <small>(Enter)</small></button>`;
@@ -364,7 +380,7 @@ export class Screens {
       <div class="outcome ${passed ? 'excellent' : 'crash'}">${title}</div>
       ${passed ? stars(status.stars) : ''}
       <div class="reason">${esc(passed ? status.text : (status.reason ?? status.text))}</div>
-      <p class="lesson-recap">${passed && !hasNext ? 'You have flown every lesson. Try a free flight from the menu next.' : `Lesson: ${esc(def.teaches)}`}</p>
+      <p class="lesson-recap">${passed && !hasNext && !heavy ? 'You have flown every lesson. Try a free flight from the menu next.' : `Lesson: ${esc(def.teaches)}`}</p>
       <div class="buttons">${first}<button class="btn" data-a="training">Training</button></div>
     </div>`;
     this.show('results');

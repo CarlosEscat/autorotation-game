@@ -1,4 +1,4 @@
-import { AIRCRAFT as A, GRAVITY, M_TO_FT, MS_TO_KT } from '../sim/aircraft';
+import { AIRCRAFT_TYPES, AircraftId, AircraftSpec, GRAVITY, M_TO_FT, MS_TO_KT } from '../sim/aircraft';
 import { SIM_DT, failEngine, rotorAero, stepFlight, trimmedState, updateDerived } from '../sim/flightModel';
 import { ControlInputs, FlightEnvironment, HelicopterState } from '../sim/state';
 import { DEG, Vec3, bodyAxes, clamp, hlen, scale, smoothstep, sub, v3 } from '../sim/vec';
@@ -36,6 +36,8 @@ export interface FlightConfig {
   leniency?: number;
   /** Fly around: the engine never fails and a safe touchdown leaves you on the skids, free to lift off again. */
   freeFlight?: boolean;
+  /** Helicopter type to fly; the light trainer by default. */
+  aircraft?: AircraftId;
 }
 
 export interface StartOverride {
@@ -79,6 +81,7 @@ export interface FlightResult {
  */
 export class FlightSession {
   readonly state: HelicopterState;
+  readonly aircraft: AircraftSpec;
   readonly env: FlightEnvironment;
   readonly wind: Vec3;
   readonly rec = new FlightRecorder();
@@ -104,6 +107,7 @@ export class FlightSession {
     readonly world: World,
     readonly config: FlightConfig,
   ) {
+    this.aircraft = AIRCRAFT_TYPES[config.aircraft ?? 'light'].spec;
     const from = config.windFromDeg * DEG;
     // Air moves toward the opposite of where it comes from. North = -Z, east = +X.
     this.wind = scale(v3(-Math.sin(from), 0, Math.cos(from)), config.windKt / MS_TO_KT);
@@ -112,11 +116,12 @@ export class FlightSession {
     const ground = world.heightAt(start.x, start.z);
     this.state = trimmedState({
       x: start.x,
-      y: ground + A.skidHeight + config.altitudeFt / M_TO_FT,
+      y: ground + this.aircraft.skidHeight + config.altitudeFt / M_TO_FT,
       z: start.z,
       yaw: start.yaw,
       airspeed: config.airspeedKt / MS_TO_KT,
       wind: this.wind,
+      aircraft: this.aircraft,
     });
     updateDerived(this.state, this.env);
     this.rec.start(this.state);
@@ -132,11 +137,11 @@ export class FlightSession {
     const s = this.state;
     const axes = bodyAxes(s.yaw, s.pitch, s.roll);
     const vAir = sub(s.vel, this.wind);
-    const hubAgl = s.agl + A.skidHeight + A.hubHeight;
+    const hubAgl = s.agl + this.aircraft.skidHeight + this.aircraft.hubHeight;
     let lo = 0, hi = 1;
     for (let i = 0; i < 20; i++) {
       const mid = (lo + hi) / 2;
-      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl).thrust > A.mass * GRAVITY) hi = mid;
+      if (rotorAero(s.omega, mid, vAir, axes, s.inducedVel, hubAgl, this.aircraft).thrust > this.aircraft.mass * GRAVITY) hi = mid;
       else lo = mid;
     }
     s.collective = lo;
@@ -229,10 +234,10 @@ export class FlightSession {
     // Sit on the skids: no sinking into the ground, skid friction, level attitude.
     // Both scale with the weight still on the skids, so a helicopter made light with the
     // collective can slide forward and tilt (a running takeoff or landing).
-    const load = clamp(1 - (s.thrust * Math.cos(s.pitch) * Math.cos(s.roll)) / (A.mass * GRAVITY), 0, 1);
+    const load = clamp(1 - (s.thrust * Math.cos(s.pitch) * Math.cos(s.roll)) / (this.aircraft.mass * GRAVITY), 0, 1);
     // Lifting off: the rotor carries all the weight, let it climb clear of the ground.
     if (load === 0 && s.vel.y > 0) return;
-    s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + A.skidHeight;
+    s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + this.aircraft.skidHeight;
     s.vel.y = Math.max(0, s.vel.y);
     const gs = hlen(s.vel);
     if (gs > 0) {
@@ -309,7 +314,7 @@ export class FlightSession {
     this.groundTime = 0;
     const s = this.state;
     s.vel.y = 0;
-    s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + A.skidHeight;
+    s.pos.y = this.world.heightAt(s.pos.x, s.pos.z) + this.aircraft.skidHeight;
   }
 
   /** Simple post-touchdown slide: skid friction, obstacles, rotor run-down. */
@@ -327,7 +332,7 @@ export class FlightSession {
     s.pos.x += s.vel.x * dt;
     s.pos.z += s.vel.z * dt;
     const ground = this.world.heightAt(s.pos.x, s.pos.z);
-    s.pos.y = surface === 'water' ? Math.max(ground + A.skidHeight - 1.5, s.pos.y - dt * 0.6) : ground + A.skidHeight;
+    s.pos.y = surface === 'water' ? Math.max(ground + this.aircraft.skidHeight - 1.5, s.pos.y - dt * 0.6) : ground + this.aircraft.skidHeight;
     s.pitch += (0 - s.pitch) * Math.min(1, dt * 4);
     s.pitchCmd = s.pitch;
     if (!this.crashed) s.roll += (0 - s.roll) * Math.min(1, dt * 4);

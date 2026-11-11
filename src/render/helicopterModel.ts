@@ -1,10 +1,11 @@
 import * as THREE from 'three';
-import { AIRCRAFT as A } from '../sim/aircraft';
+import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
+import { buildHeavyExterior } from './heavyModel';
 
-const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
 
 /** A box stretched between two points, used for frames, tubes and struts. */
-function bar(from: THREE.Vector3, to: THREE.Vector3, thickness: number, material: THREE.Material): THREE.Mesh {
+export function bar(from: THREE.Vector3, to: THREE.Vector3, thickness: number, material: THREE.Material): THREE.Mesh {
   const len = from.distanceTo(to);
   const m = new THREE.Mesh(new THREE.BoxGeometry(thickness, thickness, len), material);
   m.position.copy(from).add(to).multiplyScalar(0.5);
@@ -12,7 +13,7 @@ function bar(from: THREE.Vector3, to: THREE.Vector3, thickness: number, material
   return m;
 }
 
-const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+export const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 export interface HelicopterModel {
   root: THREE.Group;
@@ -30,11 +31,10 @@ export interface HelicopterModel {
   eye: THREE.Object3D;
 }
 
-export function buildHelicopter(): HelicopterModel {
-  const root = new THREE.Group();
-  root.rotation.order = 'YXZ';
+/** The light trainer's airframe; returns the group and its tail rotor. */
+function buildLightExterior(): { exterior: THREE.Group; tailRotor: THREE.Group } {
+  const A = AIRCRAFT;
   const exterior = new THREE.Group();
-  const cockpit = new THREE.Group();
 
   // --- Exterior -------------------------------------------------------------
   const red = mat(0xc8432f), white = mat(0xf1ece0), dark = mat(0x3a3a40), glass = mat(0x7da6bd, { transparent: true, opacity: 0.85 });
@@ -97,14 +97,18 @@ export function buildHelicopter(): HelicopterModel {
     tailRotor.add(b);
   }
   exterior.add(tailRotor);
+  return { exterior, tailRotor };
+}
 
-  // --- Main rotor (visible in both views) ------------------------------------
+/** Main rotor (visible in both views): blades, the blurred disc and the cockpit-view sweeps. */
+function buildRotor(A: AircraftSpec) {
   const rotor = new THREE.Group();
   rotor.position.set(0, A.hubHeight, 0);
   const bladeMat = mat(0x222226);
-  for (const s of [-1, 1]) {
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(A.rotorRadius, 0.04, 0.28), bladeMat);
-    blade.position.x = (s * A.rotorRadius) / 2;
+  const bladeAngles = Array.from({ length: A.bladeCount }, (_, i) => (i * Math.PI * 2) / A.bladeCount);
+  for (const a of bladeAngles) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(A.rotorRadius, 0.04, A.bladeChord).translate(A.rotorRadius / 2, 0, 0), bladeMat);
+    blade.rotation.y = a;
     rotor.add(blade);
   }
   const rotorDisc = new THREE.Mesh(
@@ -118,7 +122,7 @@ export function buildHelicopter(): HelicopterModel {
   rotorSweep.position.set(0, A.hubHeight, 0);
   const sweepMat = new THREE.MeshBasicMaterial({ color: 0x2a2a30, vertexColors: true, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false });
   const SWEEP_WIDTH = 0.8; // rad of trailing blur behind each blade
-  for (const start of [0, Math.PI]) {
+  for (const start of bladeAngles) {
     const geo = new THREE.RingGeometry(0.5, A.rotorRadius, 20, 4, start, SWEEP_WIDTH);
     const p = geo.attributes.position, rgba: number[] = [];
     for (let i = 0; i < p.count; i++) {
@@ -131,8 +135,13 @@ export function buildHelicopter(): HelicopterModel {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(rgba, 4));
     rotorSweep.add(new THREE.Mesh(geo.rotateX(Math.PI / 2), sweepMat));
   }
+  return { rotor, rotorDisc, rotorSweep };
+}
 
-  // --- Cockpit interior (pilot in the right seat) -----------------------------
+/** Cockpit interior (pilot in the right seat), shared by both types. */
+function buildCockpit() {
+  const cockpit = new THREE.Group();
+  const dark = mat(0x3a3a40);
   // A slim, low panel in matte warm charcoal: it reads clearly against the terrain and
   // stays below the HUD instruments, which sit just above the bottom of the screen.
   const panelMat = mat(0x3d3833), gaugeMat = mat(0x141414), rim = mat(0xcfc6b4), needleMat = mat(0xf0e6d0);
@@ -179,6 +188,18 @@ export function buildHelicopter(): HelicopterModel {
   const eye = new THREE.Object3D();
   eye.position.set(0.36, 0.58, -0.72);
   cockpit.add(eye);
+  return { cockpit, cyclic, collective, eye };
+}
+
+export function buildHelicopter(id: AircraftId = 'light'): HelicopterModel {
+  const A = AIRCRAFT_TYPES[id].spec;
+  const root = new THREE.Group();
+  root.rotation.order = 'YXZ';
+  const { exterior, tailRotor } = id === 'heavy' ? buildHeavyExterior(A) : buildLightExterior();
+  const { rotor, rotorDisc, rotorSweep } = buildRotor(A);
+  const { cockpit, cyclic, collective, eye } = buildCockpit();
+  // The heavy type's flight deck is in the nose, well ahead of the rotor mast.
+  if (id === 'heavy') cockpit.position.set(0.2, 0.05, -3.4);
 
   const shadowProxy = exterior.clone();
   const shadowOnly = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false });

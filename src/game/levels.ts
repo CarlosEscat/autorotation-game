@@ -55,7 +55,7 @@ export interface Pad {
   kind: 'circle' | 'heliport';
 }
 
-export type TierId = 'beginner' | 'intermediate' | 'emergency' | 'expert';
+export type TierId = 'beginner' | 'intermediate' | 'emergency' | 'expert' | 'heavy';
 
 /** A section of the training menu. Its lessons are the levels with this tier, in list order. */
 export interface TierDef {
@@ -70,6 +70,9 @@ export const TIERS: TierDef[] = [
   { id: 'expert', title: 'Expert', blurb: 'Valley runs and tight spots. Fun first, still scored.' },
   { id: 'emergency', title: 'Emergency', blurb: 'The full autorotation sequence, ending in the checkride.' },
 ];
+
+/** Missions flown in the heavy helicopter: their own section of the menu, with their own path. */
+export const HEAVY_TIER: TierDef = { id: 'heavy', title: 'Heavy', blurb: 'The big firefighting helicopter: faster, far more powerful, slower to turn and stop.' };
 
 /** A level as written below; its place in the menu (`num`, `label`) is worked out from its tier. */
 interface LevelSpec {
@@ -255,6 +258,14 @@ function padLanding(pad: Pad, noun: string, lim: PadLimits): Objective {
     return { text };
   });
 }
+
+// ---------- Heavy: the conversion course round the valley ----------
+
+/** Conversion flight: the countdown, and the finish time that earns the speed star. */
+export const CONVERSION = { limitS: 240, fastS: 155 };
+const CONVERSION_START = { x: RUNWAY_X, z: -800, yaw: Math.PI };
+/** Painted on the runway, a short way in from its south end. */
+const CONVERSION_PAD: Pad = { x: RUNWAY_X, z: -330, radius: 15, kind: 'circle' };
 
 const SPECS: LevelSpec[] = [
   {
@@ -1063,14 +1074,119 @@ const SPECS: LevelSpec[] = [
       });
     },
   },
+  {
+    id: 'conversion',
+    tier: 'heavy',
+    title: 'Conversion flight',
+    teaches: 'The heavy helicopter is fast and strong but slow to turn and stop: plan every bend and the landing well ahead.',
+    config: { ...POWERED, aircraft: 'heavy', altitudeFt: 0, start: { ...CONVERSION_START, settle: 'skids' } },
+    target: null,
+    // South off the runway and flat out down the west shore of the lake, a wide left turn round the
+    // south end of the valley, back north up the east side, then west onto the circle on the runway.
+    gates: withFacing(CONVERSION_START, [
+      { x: RUNWAY_X, z: -300, agl: 25, radius: 22 },
+      { x: RUNWAY_X, z: 290, agl: 45, radius: 22 },
+      // The turn: half a circle of 380 m radius round (200, 880), entered and left along its tangents,
+      // a ring every 45°, all at about the same height (the ground rises and falls under them).
+      { x: RUNWAY_X, z: 880, agl: 55, radius: 24 },
+      { x: -69, z: 1149, agl: 68, radius: 24 },
+      { x: 200, z: 1260, agl: 42, radius: 24 },
+      { x: 469, z: 1149, agl: 52, radius: 24 },
+      { x: 580, z: 880, agl: 76, radius: 24 },
+      { x: 560, z: 300, agl: 55, radius: 22 },
+      { x: 430, z: -250, agl: 60, radius: 22 },
+    ]),
+    pads: [CONVERSION_PAD],
+    makeObjective(world) {
+      const gates = this.gates;
+      const pad = CONVERSION_PAD;
+      // Wheels: rolling on a little is fine, so the drift limit is wider than for the skid landings.
+      const lim: PadLimits = { maxSinkMs: 2.54, maxDriftMs: 8, three: { dist: 5, sinkMs: 1 }, two: { dist: 9, sinkMs: 2 } };
+      const cross = ringCrossing(world, 8);
+      let next = 0, hits = 0, lastTd: TouchdownReport | null = null;
+      return lesson(({ session, mode }) => {
+        const s = session.state;
+        const k = KEY_WORDS[mode];
+        const timeLeft = Math.max(0, CONVERSION.limitS - s.time);
+        if (next < gates.length) {
+          const off = cross(s, gates[next]);
+          if (off !== null) (hits += Number(off < 1)), next++;
+        }
+        const missed = next - hits;
+        const td = session.touchdown;
+        // Settling back onto the runway before the first ring is fine; any later touchdown ends the flight.
+        if (td && td !== lastTd && next > 0) {
+          const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+          const r = judgePadTouchdown(td, d, pad, 'circle', lim, k);
+          if (r.state === 'failed') return r;
+          const stars = lakeRunStars({ hits, flown: next, rings: gates.length, time: s.time }, CONVERSION.fastS);
+          const rings = hits === gates.length ? 'all rings' : `${hits} of ${gates.length} rings`;
+          return { ...pass(stars, `Back on the wheels in ${Math.round(s.time)} s, ${rings}.`), nextGate: next, timeLeft };
+        }
+        lastTd = td;
+        if (timeLeft <= 0) return fail('Out of time! Use the speed on the straight legs, and start slowing down for the runway sooner.');
+        const left = `${Math.ceil(timeLeft)} s left.`;
+        const slip = missed > 0 ? ` (${missed} missed)` : '';
+        const kt = Math.round(s.airspeed * MS_TO_KT);
+        let text: string;
+        if (session.onSkids && next === 0) {
+          text = `On the runway, engines running. Raise the collective (${k.up}) to lift off, then nose down (${k.fwd}) for the ring ahead. ${left}`;
+        } else if (next < gates.length) {
+          const g = gates[next];
+          const dy = gateY(g, world) - s.pos.y;
+          const label = `Ring ${next + 1} of ${gates.length}${slip}`;
+          const height = dy > g.radius * 0.5 ? ` Climb (${k.up}).` : dy < -g.radius * 0.5 ? ` Come down (${k.down}).` : '';
+          text =
+            next === 0
+              ? `${label}: lift off and build speed along the runway. It is heavy: give it time. ${left}`
+              : next === 1
+                ? `${label}: flat out down the valley (${k.fwd}). ${kt} kt.${height} ${left}`
+                : next === 2
+                  ? `${label}: straight on, but ease back to about 90 kt (${k.aft}) for the turn after it. ${kt} kt.${height}`
+                : next <= 6
+                  ? `${label}: wide left turn round the end of the valley. ${kt > 100 ? `Slow to about 90 kt (${k.aft}) or it will run wide.` : `Bank early (${k.turn}) and hold it.`}${height}`
+                  : next === 7
+                    ? `${label}: north up the east shore. Let it run (${k.fwd}). ${kt} kt.${height} ${left}`
+                    : `${label}: last ring, then left to the runway. Start slowing down now (${k.aft}).${height}`;
+        } else {
+          const d = Math.hypot(s.pos.x - pad.x, s.pos.z - pad.z);
+          text =
+            d > 150
+              ? `Head for the circle on the runway, ${relativeTo(s, pad.x, pad.z)}. Nose up (${k.aft}): it takes a long way to stop. ${left}`
+              : d > 6 || s.groundSpeed > 2.5
+                ? `The circle is ${relativeTo(s, pad.x, pad.z)}. Bring it to a hover over the middle.`
+                : `Over the circle. Lower the collective gently (${k.down}) and settle onto the wheels. ${left}`;
+        }
+        return { text, progress: next / gates.length, nextGate: next, timeLeft };
+      });
+    },
+  },
 ];
 
-/** Every level in play order: tier by tier, each tier's lessons in list order. */
-export const LEVELS: LevelDef[] = TIERS.flatMap((t) =>
-  SPECS.filter((l) => l.tier === t.id).map((l, i) => ({ ...l, num: i + 1, label: `${t.title} ${i + 1}` })),
-);
+const numbered = (t: TierDef): LevelDef[] => SPECS.filter((l) => l.tier === t.id).map((l, i) => ({ ...l, num: i + 1, label: `${t.title} ${i + 1}` }));
 
-export const tierOf = (def: LevelDef) => TIERS.find((t) => t.id === def.tier)!;
+/** Every training lesson in play order: tier by tier, each tier's lessons in list order. */
+export const LEVELS: LevelDef[] = TIERS.flatMap(numbered);
+
+/** The heavy helicopter's missions, in play order. */
+export const HEAVY_LEVELS: LevelDef[] = numbered(HEAVY_TIER);
+
+/** Everything that can be flown from the training screen; a level's index here identifies it to the game and the menus. */
+export const ALL_LEVELS: LevelDef[] = [...LEVELS, ...HEAVY_LEVELS];
+
+export const tierOf = (def: LevelDef) => [...TIERS, HEAVY_TIER].find((t) => t.id === def.tier)!;
+
+/** Index in ALL_LEVELS of the level that follows `index` on the same path (training or heavy), or null at its end. */
+export function nextLevelIndex(index: number): number | null {
+  const cur = ALL_LEVELS[index], next = ALL_LEVELS[index + 1];
+  return cur && next && (cur.tier === 'heavy') === (next.tier === 'heavy') ? index + 1 : null;
+}
+
+/** The heavy missions run on their own path: the first is always open, each pass opens the next. */
+export function heavyStates(progress: Record<string, number>): LessonState[] {
+  const next = HEAVY_LEVELS.findIndex((l) => !((progress[l.id] ?? 0) > 0));
+  return HEAVY_LEVELS.map((l, i) => ((progress[l.id] ?? 0) > 0 ? 'passed' : i === next ? 'next' : 'locked'));
+}
 
 /**
  * Where each level stands on the one training path, across tier boundaries:

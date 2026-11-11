@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { AIRCRAFT as A } from '../sim/aircraft';
+import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
 import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
@@ -17,7 +17,10 @@ export class GameRenderer {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
+  /** One model per helicopter type, built on first use; `heli` is the one on screen. */
+  private models = new Map<AircraftSpec, HelicopterModel>();
   private heli: HelicopterModel;
+  private heliSpec: AircraftSpec = AIRCRAFT;
   private beacon: THREE.Group;
   private beaconColumn: THREE.MeshBasicMaterial;
   private markers: THREE.Group | null = null;
@@ -74,10 +77,7 @@ export class GameRenderer {
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon);
 
-    this.heli = buildHelicopter();
-    this.heli.root.traverse((o) => (o.castShadow = o !== this.heli.rotorDisc));
-    this.heli.rotorSweep.traverse((o) => (o.castShadow = false));
-    this.scene.add(this.heli.root);
+    this.heli = this.modelFor(AIRCRAFT);
     this.heli.eye.add(this.camera);
 
     this.shadow = new THREE.Mesh(
@@ -88,6 +88,30 @@ export class GameRenderer {
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  private modelFor(spec: AircraftSpec): HelicopterModel {
+    let m = this.models.get(spec);
+    if (!m) {
+      const id = (Object.keys(AIRCRAFT_TYPES) as AircraftId[]).find((k) => AIRCRAFT_TYPES[k].spec === spec) ?? 'light';
+      const built = (m = buildHelicopter(id));
+      built.root.traverse((o) => (o.castShadow = o !== built.rotorDisc));
+      built.rotorSweep.traverse((o) => (o.castShadow = false));
+      this.scene.add(built.root);
+      this.models.set(spec, built);
+    }
+    return m;
+  }
+
+  /** Puts the model of the type being flown on screen, moving the cockpit camera with it. */
+  private useModel(spec: AircraftSpec) {
+    if (spec === this.heliSpec) return;
+    this.heli.root.visible = false;
+    this.heli = this.modelFor(spec);
+    this.heliSpec = spec;
+    this.heli.root.visible = true;
+    this.shadow.scale.setScalar(spec.rotorRadius / AIRCRAFT.rotorRadius);
+    this.setMode(this.mode);
   }
 
   /** Windsocks depend on the wind of the current flight. */
@@ -155,6 +179,8 @@ export class GameRenderer {
   }
 
   render(s: HelicopterState, c: ControlInputs, look: { yaw: number; pitch: number }, frameDt: number, tipOver = 0) {
+    this.useModel(s.aircraft);
+    const A = s.aircraft;
     const h = this.heli;
     h.root.position.set(s.pos.x, s.pos.y, s.pos.z);
     h.root.rotation.set(s.pitch, s.yaw, -s.roll - tipOver);
@@ -192,14 +218,16 @@ export class GameRenderer {
       this.camera.position.set(0, 0, 0);
       this.camera.rotation.set(look.pitch - 0.08, look.yaw, 0, 'YXZ');
     } else {
-      const back = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw)).multiplyScalar(17);
-      const desired = new THREE.Vector3(s.pos.x + back.x, s.pos.y + 4.5, s.pos.z + back.z);
+      // The chase camera stands further back from a bigger helicopter.
+      const size = A.rotorRadius / AIRCRAFT.rotorRadius;
+      const back = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw)).multiplyScalar(17 * size);
+      const desired = new THREE.Vector3(s.pos.x + back.x, s.pos.y + 4.5 * size, s.pos.z + back.z);
       const ground = this.world.heightAt(desired.x, desired.z) + 2;
       desired.y = Math.max(desired.y, ground);
       if (Number.isNaN(this.chasePos.x)) this.chasePos.copy(desired);
       this.chasePos.lerp(desired, Math.min(1, frameDt * 4));
       this.camera.position.copy(this.chasePos);
-      this.camera.lookAt(s.pos.x, s.pos.y + 1, s.pos.z);
+      this.camera.lookAt(s.pos.x, s.pos.y + size, s.pos.z);
       if (look.yaw || look.pitch) this.camera.rotateY(look.yaw), this.camera.rotateX(look.pitch);
     }
 

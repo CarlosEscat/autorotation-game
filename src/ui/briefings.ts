@@ -251,6 +251,33 @@ const HILL_CLIMB = svg(
     text(250, 156, 'Lookout Hill', INK, 'middle', 600),
 );
 
+/** Map of the conversion course, north to the left: down the west shore, round the south end, back up the east side. */
+const CONVERSION = (() => {
+  // World (x east, z south) onto the sketch: z runs left to right, east is up.
+  const px = (z: number) => 8 + (z + 900) * 0.136;
+  const py = (x: number) => 132 - (x + 400) * 0.125;
+  const course: [number, number][] = [[-180, -800], [-180, -300], [-180, 290], [-180, 880], [-69, 1149], [200, 1260], [469, 1149], [580, 880], [560, 300], [430, -250], [-180, -330]];
+  const path = course.map(([x, z], i) => `${i ? 'L' : 'M'}${px(z).toFixed(1)} ${py(x).toFixed(1)}`).join(' ');
+  const dots = course
+    .slice(1, -1)
+    .map(([x, z], i) => `<circle cx="${px(z)}" cy="${py(x)}" r="4.5" style="stroke:${ACC}" stroke-width="2.5"/>` + ([0, 4, 8].includes(i) ? text(px(z), py(x) - 9, String(i + 1), ACC) : ''))
+    .join('');
+  return svg(
+    `<circle cx="${px(260)}" cy="${py(60)}" r="${210 * 0.136}" style="fill:${ACC};stroke:none" opacity="0.18"/>` +
+      text(px(260), py(60) + 3, 'lake', INK, 'middle', 600) +
+      `<rect x="${px(-925)}" y="${py(-180) - 3}" width="${750 * 0.136}" height="6" style="fill:${INK};stroke:none" opacity="0.35"/>` +
+      `<path d="${path}" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+      dots +
+      `<circle cx="${px(-330)}" cy="${py(-180)}" r="6" style="stroke:${GREEN}" stroke-width="2"/>` +
+      heliTop(px(-800), py(-180), 90) +
+      text(px(-560), py(-180) + 22, 'runway', INK, 'middle', 600) +
+      text(px(150), py(-180) + 22, 'flat out', GREEN, 'middle', 600) +
+      text(px(950), py(200) + 3, 'wide turn', INK, 'middle', 600) +
+      arrow(34, 20, 14, 20, INK, 1.5) +
+      text(40, 23, 'N', INK, 'start', 600)
+  );
+})();
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -495,6 +522,16 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Land on the summit pad before the 3:00 countdown runs out. One star for landing in time, one for flying through all seven rings, one for touching down within 1:25 of the start. A missed ring costs only its star.',
     diagram: HILL_CLIMB,
+  },
+  conversion: {
+    goal: 'Your first flight in the heavy helicopter: take off, fly nine rings round the whole valley as fast as you dare, and land it back on its wheels on the runway.',
+    steps: (k) => [
+      `Raise the collective (<b>${k.up}</b>) to lift off, then lower the nose (<b>${k.fwd}</b>). It weighs seven times as much as the trainer: it gathers speed slowly, then keeps going to about 170 kt.`,
+      `Ring 2 is a straight dash down the lake shore. Ease back to about 90 kt (<b>${k.aft}</b>) by ring 3, then bank early (<b>${k.turn}</b>) for the wide left turn through rings 4 to 7, or it runs wide.`,
+      `After ring 9 the runway is on your left. Start slowing down straight away: it takes a long way to stop. Hover over the yellow circle and settle gently (<b>${k.down}</b>).`,
+    ],
+    pass: 'Land inside the circle on the runway before the 4:00 countdown runs out. One star for landing in time, one for flying through all nine rings, one for touching down within 2:35 of the start. A missed ring costs only its star.',
+    diagram: CONVERSION,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',

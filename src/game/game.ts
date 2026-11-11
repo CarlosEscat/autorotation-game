@@ -9,7 +9,7 @@ import { DEFAULT_SETTINGS, Screens, Settings, configFromSettings, normalizeSetti
 import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
-import { LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, unlocksFromOldLayouts } from './levels';
+import { ALL_LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, nextLevelIndex, unlocksFromOldLayouts } from './levels';
 import { FlightConfig, FlightSession } from './session';
 
 type GameState = 'menu' | 'flying' | 'paused' | 'results';
@@ -122,7 +122,7 @@ export class Game {
       onMute: () => this.toggleMute(),
       onBriefing: (i) => this.toBriefing(i),
       onStartLevel: (i) => this.startLevel(i),
-      onNextLevel: () => this.toBriefing((this.level?.index ?? -1) + 1),
+      onNextLevel: () => this.toBriefing(nextLevelIndex(this.level?.index ?? -1) ?? -1),
     });
     attachKeyboard(this.input);
     this.bindActions();
@@ -166,7 +166,8 @@ export class Game {
       if (this.state === 'menu' && this.briefing !== null) return this.startLevel(this.briefing);
       if (this.state !== 'results') return;
       const l = this.level;
-      if (l && l.status.state === 'passed' && l.index + 1 < LEVELS.length) this.toBriefing(l.index + 1);
+      const next = l && l.status.state === 'passed' ? nextLevelIndex(l.index) : null;
+      if (next !== null) this.toBriefing(next);
       else this.restart();
     });
     i.on('mute', () => this.toggleMute());
@@ -194,7 +195,7 @@ export class Game {
   }
 
   private startLevel(index: number) {
-    const def = LEVELS[index];
+    const def = ALL_LEVELS[index];
     if (!def) return this.toTraining();
     this.briefing = null;
     this.free = false;
@@ -255,7 +256,7 @@ export class Game {
   }
 
   private toBriefing(index: number) {
-    if (!LEVELS[index]) return this.toTraining();
+    if (!ALL_LEVELS[index]) return this.toTraining();
     this.toMenu();
     this.briefing = index;
     this.screens.showBriefing(index, this.input.mode);
@@ -321,7 +322,7 @@ export class Game {
         { state: s, engineOut, target, guidance, windKt: session.config.windKt, windFromDeg: session.config.windFromDeg, hint: null, lowG: this.lowGTimer > 0 },
         dt,
       );
-      this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000);
+      this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000, s.aircraft.soundPitch);
     }
     requestAnimationFrame((t) => this.frame(t));
   }
@@ -365,7 +366,7 @@ export class Game {
     }
     this.state = 'results';
     this.touch.setVisible(false);
-    this.screens.showLevelResult(l.def, l.status, l.index + 1 < LEVELS.length);
+    this.screens.showLevelResult(l.def, l.status, nextLevelIndex(l.index) !== null);
   }
 
   private finishFreeFlight(session: FlightSession) {
