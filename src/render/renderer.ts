@@ -4,6 +4,8 @@ import { ControlInputs, HelicopterState } from '../sim/state';
 import { LandingArea, World } from '../world/world';
 import { HelicopterModel, buildHelicopter } from './helicopterModel';
 import { WaterSpray } from './waterSpray';
+import { FireFx } from './fireFx';
+import { Fire } from '../game/fire';
 import { Gate, Pad, gateY } from '../game/levels';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
@@ -33,6 +35,7 @@ export class GameRenderer {
   private chasePos = new THREE.Vector3();
   private spray = new WaterSpray();
   private dropping = false;
+  private fireFx: FireFx | null = null;
   private rotorAngle = 0;
   private tailAngle = 0;
   private sweepAngle = 0;
@@ -117,6 +120,13 @@ export class GameRenderer {
     this.setMode(this.mode);
   }
 
+  /** Shows the fire of the current flight (null clears it). */
+  setFire(fire: Fire | null) {
+    if (this.fireFx) this.scene.remove(this.fireFx.group);
+    this.fireFx = fire ? new FireFx(fire, this.world) : null;
+    if (this.fireFx) this.scene.add(this.fireFx.group);
+  }
+
   /** Whether water is leaving the tank; the spray is drawn by the next `render`. */
   setWaterDrop(on: boolean) {
     this.dropping = on;
@@ -197,6 +207,8 @@ export class GameRenderer {
     const outlet = h.root.localToWorld(new THREE.Vector3(0, -A.skidHeight + 0.4, -0.4));
     const ground = (x: number, z: number) => Math.max(this.world.heightAt(x, z), this.world.surfaceAt(x, z) === 'water' ? this.world.waterLevel : -1e9);
     this.spray.update(frameDt, this.dropping, outlet, new THREE.Vector3(s.vel.x, s.vel.y, s.vel.z), ground);
+
+    this.fireFx?.update(frameDt);
 
     this.rotorAngle += s.omega * frameDt;
     this.tailAngle += s.omega * 5.5 * frameDt;

@@ -111,13 +111,15 @@ describe('heavy helicopter: missions', () => {
   it('has its own path: the training lessons are unchanged and the first mission is always open', () => {
     expect(LEVELS.some((l) => l.tier === 'heavy')).toBe(false);
     expect(LEVELS.every((l) => (l.config.aircraft ?? 'light') === 'light')).toBe(true);
-    expect(HEAVY_LEVELS.map((l) => l.label)).toEqual(['Heavy 1']);
+    expect(HEAVY_LEVELS.map((l) => l.label)).toEqual(['Heavy 1', 'Heavy 2', 'Heavy 3']);
+    expect(HEAVY_LEVELS.map((l) => l.id)).toEqual(['conversion', 'firstfire', 'forestfire']);
     expect(HEAVY_LEVELS.every((l) => l.config.aircraft === 'heavy')).toBe(true);
-    expect(heavyStates({})).toEqual(['next']);
-    expect(heavyStates({ conversion: 2 })).toEqual(['passed']);
+    expect(heavyStates({})).toEqual(['next', 'locked', 'locked']);
+    expect(heavyStates({ conversion: 2 })).toEqual(['passed', 'next', 'locked']);
     // The checkride ends the training path; it does not lead into the heavy missions.
     expect(nextLevelIndex(LEVELS.length - 1)).toBeNull();
-    expect(nextLevelIndex(ALL_LEVELS.indexOf(def))).toBeNull();
+    expect(nextLevelIndex(ALL_LEVELS.indexOf(def))).toBe(ALL_LEVELS.indexOf(def) + 1);
+    expect(nextLevelIndex(ALL_LEVELS.length - 1)).toBeNull();
     expect(nextLevelIndex(0)).toBe(1);
     for (const l of ALL_LEVELS) expect(BRIEFINGS[l.id], l.id).toBeDefined();
   });

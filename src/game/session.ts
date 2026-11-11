@@ -14,6 +14,7 @@ import {
   describeStrike,
   evaluateTouchdown,
 } from './landing';
+import { Fire, FireSpec, dropEffect, waterFall } from './fire';
 import { FlareModel } from './flareModel';
 import { FlightRecorder, ScoreResult, computeScore } from './scoring';
 
@@ -36,6 +37,8 @@ export interface FlightConfig {
   leniency?: number;
   /** Fly around: the engine never fails and a safe touchdown leaves you on the skids, free to lift off again. */
   freeFlight?: boolean;
+  /** A fire burning somewhere on the map, to be put out with dropped water. */
+  fire?: FireSpec;
   /** Helicopter type to fly; the light trainer by default. */
   aircraft?: AircraftId;
 }
@@ -107,6 +110,8 @@ export class FlightSession {
   private assistAnnounced = false;
   /** Water on board, kg (always 0 for a type without a tank). Flights start with a full tank. */
   water: number;
+  /** The fire of this flight, if it has one. */
+  readonly fire: Fire | null;
   /** Water is leaving the tank this step. */
   dropping = false;
   /** The snorkel is drawing water from the lake this step. */
@@ -119,6 +124,7 @@ export class FlightSession {
   ) {
     this.aircraft = AIRCRAFT_TYPES[config.aircraft ?? 'light'].spec;
     this.water = this.aircraft.waterCapacity;
+    this.fire = config.fire ? new Fire(config.fire) : null;
     const from = config.windFromDeg * DEG;
     // Air moves toward the opposite of where it comes from. North = -Z, east = +X.
     this.wind = scale(v3(-Math.sin(from), 0, Math.cos(from)), config.windKt / MS_TO_KT);
@@ -241,7 +247,17 @@ export class FlightSession {
     const A = this.aircraft;
     const s = this.state;
     this.dropping = !!c.dropWater && this.water > 0 && !this.landed;
-    if (this.dropping) this.water = Math.max(0, this.water - A.waterDropRate * dt);
+    if (this.dropping) {
+      const kg = Math.min(this.water, A.waterDropRate * dt);
+      this.water -= kg;
+      if (this.fire) {
+        // Where and when this water lands: it carries forward with the helicopter's speed as it falls.
+        const height = s.pos.y - A.skidHeight - this.world.heightAt(s.pos.x, s.pos.z);
+        const fall = waterFall(height);
+        this.fire.release(s.pos.x + s.vel.x * fall.carry, s.pos.z + s.vel.z * fall.carry, s.time + fall.time, kg * dropEffect(height));
+      }
+    }
+    this.fire?.step(s.time, dt);
     const overWater = s.pos.y - A.skidHeight - this.world.waterLevel;
     this.filling =
       !this.dropping && !c.dropWater && this.water < A.waterCapacity && overWater < SNORKEL_REACH && s.groundSpeed < SNORKEL_MAX_SPEED &&

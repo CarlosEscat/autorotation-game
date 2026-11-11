@@ -1,10 +1,11 @@
 import { MS_TO_FPM, MS_TO_KT, M_TO_FT } from '../sim/aircraft';
 import { DEG, wrapAngle } from '../sim/vec';
 import { HILL, LAKE, World } from '../world/world';
+import { DROP_FULL_HEIGHT, FireSpec, fireCells } from './fire';
 import { computeGuidance } from './guidance';
 import { KEY_WORDS, Mode } from './hints';
 import { TouchdownReport } from './landing';
-import { FlightConfig, FlightSession, START } from './session';
+import { FlightConfig, FlightSession, SNORKEL_MAX_SPEED, START } from './session';
 import { HelicopterState } from '../sim/state';
 
 export type ObjectiveState = 'running' | 'passed' | 'failed';
@@ -266,6 +267,56 @@ export const CONVERSION = { limitS: 240, fastS: 155 };
 const CONVERSION_START = { x: RUNWAY_X, z: -800, yaw: Math.PI };
 /** Painted on the runway, a short way in from its south end. */
 const CONVERSION_PAD: Pad = { x: RUNWAY_X, z: -330, radius: 15, kind: 'circle' };
+
+// ---------- Heavy: fires on the north shore of the lake ----------
+
+/** Fire missions: the countdown, and the times (from the start) that earn three and two stars. */
+export const FIRST_FIRE = { limitS: 240, threeS: 60, twoS: 110 };
+export const FOREST_FIRE = { limitS: 480, threeS: 240, twoS: 360 };
+/** A handful of burning patches in the grass beside the trees, just north of the lake: well within one tank. */
+const SMALL_FIRE: FireSpec = { cells: fireCells(-80, 20, 9, 8, 7), waterPerCell: 200 };
+/** A stretch of forest north-east of the lake, some 60 m long: too much for one tank. */
+const BIG_FIRE: FireSpec = { cells: fireCells(240, -60, 30, 20, 9, 0.5), waterPerCell: 100 };
+/** Airborne over the airport, pointed at the fire. */
+const fireStart = (x: number, z: number, fire: FireSpec) => {
+  const c = fire.cells[Math.floor(fire.cells.length / 2)];
+  return { x, z, yaw: Math.atan2(-(c.x - x), -(c.z - z)) };
+};
+
+/** Put the fire out before the countdown ends; faster earns more stars. Refilling at the lake is always allowed. */
+function fireFight(t: { limitS: number; threeS: number; twoS: number }): Objective {
+  return lesson(({ session, mode }) => {
+    const s = session.state;
+    const k = KEY_WORDS[mode];
+    const fire = session.fire!;
+    const timeLeft = Math.max(0, t.limitS - s.time);
+    if (fire.out) {
+      const stars = s.time <= t.threeS ? 3 : s.time <= t.twoS ? 2 : 1;
+      return { ...pass(stars, `Fire out in ${Math.round(s.time)} s.`), timeLeft };
+    }
+    if (timeLeft <= 0) return fail('Out of time with the fire still burning. Fly lower and slower over the flames, so more of the water lands on them.');
+    const left = `${fire.burning} patch${fire.burning === 1 ? '' : 'es'} still burning.`;
+    const level = session.waterLevel ?? 0;
+    const c = fire.nearestBurning(s.pos.x, s.pos.z)!;
+    const d = Math.hypot(c.x - s.pos.x, c.z - s.pos.z);
+    const height = s.pos.y - session.aircraft.skidHeight - session.world.heightAt(s.pos.x, s.pos.z);
+    let text: string;
+    if (session.filling) text = `Filling the tank: ${Math.round(level * 100)}%. Hold the hover until it is full.`;
+    else if (level === 0) {
+      const overWater = session.world.surfaceAt(s.pos.x, s.pos.z) === 'water';
+      text = !overWater
+        ? `Tank empty, ${left} The lake is ${relativeTo(s, LAKE.x, LAKE.z)}: hover low over open water to refill.`
+        : s.groundSpeed > SNORKEL_MAX_SPEED
+          ? `Over the water. Slow right down to a hover (${k.aft}) so the snorkel can reach.`
+          : `Over the water. Come down (${k.down}) until the wheels are about 15 ft above it, and hold still.`;
+    } else if (session.dropping) text = d < 12 ? `Water away! ${left}` : `Water away, but the flames are ${relativeTo(s, c.x, c.z)}. Let go (${k.drop}) and line up again.`;
+    else if (d > 120) text = `The fire is ${relativeTo(s, c.x, c.z)}: follow the smoke. Come in low, below 130 ft, and slow down early (${k.aft}).`;
+    else if (height > DROP_FULL_HEIGHT) text = `Too high: from up here the water drifts apart. Come down below 130 ft (${k.down}).`;
+    else if (d > 14) text = `The nearest flames are ${relativeTo(s, c.x, c.z)}. Fly slowly over them.`;
+    else text = `Over the flames: hold ${k.drop} to drop water. ${left}`;
+    return { text, progress: fire.progress, timeLeft };
+  });
+}
 
 const SPECS: LevelSpec[] = [
   {
@@ -1159,6 +1210,30 @@ const SPECS: LevelSpec[] = [
         }
         return { text, progress: next / gates.length, nextGate: next, timeLeft };
       });
+    },
+  },
+  {
+    id: 'firstfire',
+    tier: 'heavy',
+    title: 'First fire',
+    teaches: 'Come in low and slow, and let the water go just before the flames: it carries forward as it falls.',
+    config: { ...POWERED, aircraft: 'heavy', altitudeFt: 200, airspeedKt: 60, start: fireStart(-170, -480, SMALL_FIRE), fire: SMALL_FIRE },
+    target: null,
+    gates: [],
+    makeObjective() {
+      return fireFight(FIRST_FIRE);
+    },
+  },
+  {
+    id: 'forestfire',
+    tier: 'heavy',
+    title: 'Forest fire',
+    teaches: 'One tank is not enough for a big fire: work along it in slow passes, refill at the lake, and come back before it flares up again.',
+    config: { ...POWERED, aircraft: 'heavy', altitudeFt: 250, airspeedKt: 70, start: fireStart(-170, -480, BIG_FIRE), fire: BIG_FIRE },
+    target: null,
+    gates: [],
+    makeObjective() {
+      return fireFight(FOREST_FIRE);
     },
   },
 ];

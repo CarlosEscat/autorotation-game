@@ -226,6 +226,7 @@ export class Game {
     this.renderer.setTarget(targetIndex === null ? null : this.world.areas[targetIndex]);
     this.renderer.setGates([], 0);
     this.renderer.setPads([]);
+    this.renderer.setFire(this.session.fire);
     this.renderer.setWind(cfg.windFromDeg, cfg.windKt);
     this.renderer.setMode('chase');
     this.screens.show(null);

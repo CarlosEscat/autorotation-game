@@ -278,6 +278,46 @@ const CONVERSION = (() => {
   );
 })();
 
+/** A clump of flames standing on the ground at (x, y). */
+const flames = (x: number, y: number, s = 1) =>
+  `<path d="M${x - 9 * s} ${y} Q${x - 10 * s} ${y - 12 * s} ${x - 4 * s} ${y - 20 * s} Q${x - 3 * s} ${y - 10 * s} ${x} ${y - 26 * s} Q${x + 3 * s} ${y - 12 * s} ${x + 6 * s} ${y - 18 * s} Q${x + 11 * s} ${y - 8 * s} ${x + 9 * s} ${y} Z" style="fill:${ACC};stroke:${RED}" stroke-width="1.5"/>`;
+const tree = (x: number, y = GROUND) => `<ellipse cx="${x}" cy="${y - 13}" rx="7" ry="15" style="fill:${GREEN};stroke:none" opacity="0.55"/>`;
+
+/** Side view: a low, slow pass, the water let go early so it carries onto the flames beside the trees. */
+const FIRST_FIRE = svg(
+  ground() +
+    [250, 268, 286, 304].map((x) => tree(x)).join('') +
+    flames(206, GROUND) +
+    `<path d="M30 64 H150" style="stroke:${INK}" stroke-dasharray="4 4" opacity="0.6"/>` +
+    arrow(120, 64, 152, 64, INK, 1.5) +
+    heli(96, 64, -4) +
+    `<path d="M100 76 Q150 84 198 ${GROUND - 24}" style="stroke:#6ec1ff" stroke-width="5" stroke-dasharray="2 5" opacity="0.9"/>` +
+    `<path d="M22 64 V${GROUND}" style="stroke:${INK}" opacity="0.5"/>` +
+    text(26, 104, 'below 130 ft', INK, 'start', 600) +
+    text(150, 100, 'water carries forward', '#6ec1ff', 'middle', 600) +
+    text(206, 156, 'fire', ACC) +
+    text(278, 156, 'trees', GREEN, 'middle', 600),
+);
+
+/** Map, north up: the forest fire, the lake below it, and the shuttle between them to refill. */
+const FOREST_FIRE = svg(
+  `<circle cx="120" cy="118" r="52" style="fill:#6ec1ff;stroke:none" opacity="0.22"/>` +
+    text(120, 122, 'lake', INK, 'middle', 600) +
+    [[196, 30], [214, 44], [236, 26], [256, 46], [276, 30], [206, 62], [262, 66]].map(([x, y]) => tree(x, y + 13)).join('') +
+    flames(226, 56, 0.8) +
+    flames(246, 60, 0.8) +
+    flames(236, 44, 0.7) +
+    `<rect x="36" y="14" width="6" height="52" style="fill:${INK};stroke:none" opacity="0.35"/>` +
+    text(39, 78, 'runway', INK, 'middle', 600) +
+    arrow(56, 34, 196, 46, INK, 1.5) +
+    arrow(224, 70, 176, 102, '#6ec1ff') +
+    arrow(182, 112, 232, 78, ACC) +
+    text(214, 108, 'refill', '#6ec1ff', 'start', 600) +
+    text(250, 92, 'and back', ACC, 'start', 600) +
+    heliTop(52, 34, 96) +
+    text(300, 18, 'N ↑', INK, 'end', 600),
+);
+
 const rpmBar = (() => {
   // 70–120 % mapped onto y 130..20
   const y = (p: number) => 130 - ((p - 70) / 50) * 110;
@@ -532,6 +572,26 @@ export const BRIEFINGS: Record<string, Briefing> = {
     ],
     pass: 'Land inside the circle on the runway before the 4:00 countdown runs out. One star for landing in time, one for flying through all nine rings, one for touching down within 2:35 of the start. A missed ring costs only its star.',
     diagram: CONVERSION,
+  },
+  firstfire: {
+    goal: 'A small fire is burning in the grass beside the trees on the north shore of the lake. Put it out with the water in your tank.',
+    steps: (k) => [
+      `You start in the air with a full tank, pointed at the smoke. Slow down early (<b>${k.aft}</b>) and come down below 130 ft (<b>${k.down}</b>): from higher up the water drifts apart before it lands.`,
+      `Fly slowly over the flames and hold <b>${k.drop}</b> to drop. The water carries forward as it falls, so start a little before the fire. The <b>WATER</b> gauge shows what is left.`,
+      `Let go once you are past, turn round and go again until every patch is out. A patch you only wetted flares back up, so finish it off.`,
+    ],
+    pass: 'Put out every patch before the 4:00 countdown runs out. Out within 1:50 earns two stars, within 1:00 three. One tank is enough; if you do run dry, hover low over the lake to refill.',
+    diagram: FIRST_FIRE,
+  },
+  forestfire: {
+    goal: 'A stretch of forest north-east of the lake is alight. It is too big for one tank: fight it, refill at the lake, and come back to finish it.',
+    steps: (k) => [
+      `Work along the fire in slow, low passes, just above the treetops, holding <b>${k.drop}</b> over the flames. Hovering in one place wastes water on ground that is already out.`,
+      `When the gauge reads <b>EMPTY</b>, fly to the lake, slow to a hover (<b>${k.aft}</b>) and come down (<b>${k.down}</b>) until the wheels are about 15 ft above open water. The tank fills in ten seconds.`,
+      `Go straight back: patches you wetted but did not put out slowly flare up again. Keep going until nothing is burning.`,
+    ],
+    pass: 'Put out every patch before the 8:00 countdown runs out. Out within 6:00 earns two stars, within 4:00 three.',
+    diagram: FOREST_FIRE,
   },
   failure: {
     goal: 'The engine will quit a few seconds in. Save the rotor before it slows down.',
