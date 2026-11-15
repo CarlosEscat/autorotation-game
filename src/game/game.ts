@@ -10,6 +10,7 @@ import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
 import { ALL_LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, nextLevelIndex, unlocksFromOldLayouts } from './levels';
+import { LogRecorder, sampleOf } from './logbook';
 import { Pilot, newPilot, normalizePilot, updateRank } from './pilot';
 import { FlightConfig, FlightSession } from './session';
 
@@ -121,6 +122,8 @@ export class Game {
   /** Smoothed frame time while flying, and how long it has been too slow. */
   private frameAvg = 1 / 60;
   private slowFor = 0;
+  /** Adds the flight in progress to the logbook; the scene behind the menu has none. */
+  private recorder: LogRecorder | null = null;
 
   constructor(root: HTMLElement) {
     this.renderer = new GameRenderer(root, this.world);
@@ -238,7 +241,9 @@ export class Game {
 
   private launch(cfg: FlightConfig, targetIndex: number | null) {
     this.audio.start();
+    this.commitLog();
     this.session = new FlightSession(this.world, cfg);
+    this.recorder = new LogRecorder(this.saved.pilot.logbook);
     this.input.reset(this.session.state.collective);
     this.stepper.reset();
     this.targetIndex = targetIndex;
@@ -260,7 +265,14 @@ export class Game {
     this.frameAvg = 1 / 60;
   }
 
+  /** Brings the rank up to date with the logbook and stores both. */
+  private commitLog() {
+    updateRank(this.saved.pilot, this.saved.training);
+    save(this.saved);
+  }
+
   private pause() {
+    this.commitLog();
     this.state = 'paused';
     this.screens.show('pause');
     this.audio.suspend();
@@ -286,6 +298,8 @@ export class Game {
   }
 
   private toMenu() {
+    this.commitLog();
+    this.recorder = null;
     this.state = 'menu';
     this.level = null;
     this.briefing = null;
@@ -307,6 +321,7 @@ export class Game {
       for (let n = this.stepper.advance(dt); n > 0; n--) {
         this.input.update(this.stepper.dt);
         session.step(this.input.controls, this.stepper.dt);
+        this.recorder?.step(sampleOf(session), this.stepper.dt);
         // The lever stops where the engine runs out of power, so lowering it answers at once.
         if (session.state.engineRunning) this.input.controls.collective = Math.min(this.input.controls.collective, session.state.collective);
         const l = this.level;
@@ -409,8 +424,8 @@ export class Game {
     if (l.endIn > 0) return;
     if (l.status.state === 'passed') {
       this.saved.training[l.def.id] = Math.max(this.saved.training[l.def.id] ?? 0, l.status.stars);
-      save(this.saved);
     }
+    this.commitLog();
     this.state = 'results';
     this.touch.setVisible(false);
     this.screens.showLevelResult(l.def, l.status, nextLevelIndex(l.index) !== null);
@@ -422,6 +437,7 @@ export class Game {
   }
 
   private finishFreeFlight(session: FlightSession) {
+    this.commitLog();
     this.state = 'results';
     this.touch.setVisible(false);
     setTimeout(() => {
