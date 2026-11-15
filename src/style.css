@@ -308,6 +308,11 @@ body.touch .hint { bottom: calc(24px + var(--safe-b)); max-width: min(38vw, 380p
 .brief-pass { margin: 4px 0 8px; font-size: 14px; color: var(--legend-2b); }
 .lesson-recap { margin: 10px 0 4px; font-size: 14px; color: var(--legend-2b); }
 
+/* Promotion panel: above every other screen. */
+.screen.promotion { z-index: 20; background: rgba(5, 6, 8, 0.72); }
+.promo-line { margin: 14px 0; font: 700 22px/1.2 var(--menu-font); text-transform: uppercase; letter-spacing: 0.06em; color: var(--lit-green); }
+.promo-line .engraved { display: block; margin-bottom: 6px; }
+
 /* Pilot licence: the strip on the main menu and the licence screen. */
 .meter { display: block; flex: none; width: 72px; height: 8px; border-radius: 3px; background: var(--well); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8); overflow: hidden; }
 .meter > span { display: block; height: 100%; background: var(--lit-cyan); }

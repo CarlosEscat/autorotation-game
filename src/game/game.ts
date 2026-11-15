@@ -11,7 +11,7 @@ import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
 import { ALL_LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, nextLevelIndex, unlocksFromOldLayouts } from './levels';
 import { LogRecorder, sampleOf } from './logbook';
-import { Pilot, newPilot, normalizePilot, updateRank } from './pilot';
+import { Pilot, acknowledge, newPilot, normalizePilot, pendingPromotion, updateRank } from './pilot';
 import { FlightConfig, FlightSession } from './session';
 
 /** Behind the menus and while paused the scene barely moves: draw it at 20 fps to spare the battery. */
@@ -124,6 +124,8 @@ export class Game {
   private slowFor = 0;
   /** Adds the flight in progress to the logbook; the scene behind the menu has none. */
   private recorder: LogRecorder | null = null;
+  /** The promotion panel is up: Enter and R close it instead of acting on the screen beneath. */
+  private promotionOpen = false;
 
   constructor(root: HTMLElement) {
     this.renderer = new GameRenderer(root, this.world);
@@ -151,6 +153,7 @@ export class Game {
         this.screens.setPilot(this.saved.pilot, this.saved.training);
         this.screens.showLicence(this.saved.pilot, this.saved.training);
       },
+      onPromotionSeen: () => this.promotionSeen(),
       onNextLevel: () => this.toBriefing(nextLevelIndex(this.level?.index ?? -1) ?? -1),
     });
     attachKeyboard(this.input);
@@ -189,9 +192,11 @@ export class Game {
     });
     i.on('pause', () => (this.state === 'flying' ? this.pause() : this.state === 'paused' ? this.resume() : undefined));
     i.on('restart', () => {
+      if (this.promotionOpen) return this.promotionSeen();
       if (this.state === 'results' || this.state === 'paused') this.restart();
     });
     i.on('confirm', () => {
+      if (this.promotionOpen) return this.promotionSeen();
       if (this.state === 'menu' && this.briefing !== null) return this.startLevel(this.briefing);
       if (this.state !== 'results') return;
       const l = this.level;
@@ -278,6 +283,23 @@ export class Game {
     save(this.saved);
   }
 
+  /** Tells the player, once, about a rating or rank earned since they were last told. Never while flying. */
+  private announce() {
+    const p = pendingPromotion(this.saved.pilot, this.saved.training);
+    if (!p || this.promotionOpen) return;
+    this.promotionOpen = true;
+    this.screens.showPromotion(p);
+  }
+
+  private promotionSeen() {
+    // Marked as seen in memory first, so it stays seen for this session even if saving fails.
+    acknowledge(this.saved.pilot, this.saved.training);
+    save(this.saved);
+    this.promotionOpen = false;
+    this.screens.hidePromotion();
+    this.screens.setPilot(this.saved.pilot, this.saved.training);
+  }
+
   private pause() {
     this.commitLog();
     this.state = 'paused';
@@ -318,6 +340,7 @@ export class Game {
     this.screens.setHero(Object.values(this.saved.training).some((n) => n > 0) ? 'free' : 'training');
     this.screens.show('menu');
     this.audio.suspend();
+    this.announce();
   }
 
   private frame(now: number) {
@@ -437,6 +460,7 @@ export class Game {
     this.state = 'results';
     this.touch.setVisible(false);
     this.screens.showLevelResult(l.def, l.status, nextLevelIndex(l.index) !== null);
+    this.announce();
   }
 
   private waterFrame(session: FlightSession) {

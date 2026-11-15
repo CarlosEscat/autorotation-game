@@ -5,7 +5,7 @@ import { ALL_LEVELS, HEAVY_LEVELS, HEAVY_TIER, LEVELS, LessonState, LevelDef, Ob
 import { KEY_WORDS, Mode } from '../game/hints';
 import { MAX_STARS, RANK_TITLES, RATINGS, Requirement, Stars, formatFlightTime, nextRank, ratingsHeld, requirementsFor, totalStars } from '../game/licence';
 import { totalSeconds } from '../game/logbook';
-import { CALLSIGN_MAX, DEFAULT_NAME, NAME_MAX, Pilot, cleanName } from '../game/pilot';
+import { CALLSIGN_MAX, DEFAULT_NAME, NAME_MAX, Pilot, Promotion, cleanName } from '../game/pilot';
 import { BRIEFINGS } from './briefings';
 
 export interface Settings {
@@ -109,6 +109,7 @@ export interface MenuHandlers {
   onNextLevel(): void;
   onLicence(): void;
   onPilotName(name: string, callsign: string): void;
+  onPromotionSeen(): void;
 }
 
 type ScreenName = 'menu' | 'free' | 'tutorial' | 'pause' | 'results' | 'training' | 'briefing' | 'licence';
@@ -122,6 +123,8 @@ export class Screens {
   private training: HTMLElement;
   private briefing: HTMLElement;
   private licence: HTMLElement;
+  /** Sits above every other screen and is not one of `all`, so changing screens never hides it. */
+  private promotion: HTMLElement;
   /** What the licence screen is showing, so its Edit and Cancel keys can redraw it. */
   private licenceOf: { pilot: Pilot; stars: Stars } | null = null;
   private all: HTMLElement[];
@@ -158,7 +161,8 @@ export class Screens {
       <button class="btn" data-a="restart">Restart flight</button>
       <button class="btn" data-a="mute">Sound: on</button>
       <button class="btn" data-a="menu">Main menu</button></div>`;
-    for (const el of this.all) this.bindButtons(el);
+    this.promotion = screen(parent, 'promotion');
+    for (const el of [...this.all, this.promotion]) this.bindButtons(el);
     this.setHints(settings.hints);
     // Escape or a click elsewhere closes the settings popover.
     document.addEventListener('keydown', (e) => {
@@ -199,6 +203,7 @@ export class Screens {
       else if (a === 'lic-edit') this.redrawLicence(true);
       else if (a === 'lic-cancel') this.redrawLicence(false);
       else if (a === 'lic-save') this.saveName();
+      else if (a === 'promo-ok') this.handlers.onPromotionSeen();
     });
   }
 
@@ -400,6 +405,24 @@ export class Screens {
       </dl>
     </div>`;
     this.licence.querySelector<HTMLElement>(editing ? '#lic-name' : '[data-a="lic-edit"]')?.focus();
+  }
+
+  /** A new rating or rank, announced once, over whatever screen is showing. */
+  showPromotion(p: Promotion) {
+    const lines = [
+      ...p.ratings.map((id) => `<p class="promo-line"><span class="engraved">Rating earned</span>${esc(RATINGS.find((r) => r.id === id)!.title)}</p>`),
+      ...(p.rank ? [`<p class="promo-line"><span class="engraved">Promoted to</span>${RANK_TITLES[p.rank]}</p>`] : []),
+    ];
+    this.promotion.innerHTML = `<div class="panel small promo-panel" role="alertdialog" aria-label="Licence updated">${SCREWS}
+      <h2>Licence updated</h2>${lines.join('')}
+      <div class="buttons"><button class="btn primary" data-a="promo-ok">Continue <small>(Enter)</small></button></div></div>`;
+    this.promotion.classList.add('visible');
+    this.promotion.querySelector<HTMLElement>('[data-a="promo-ok"]')!.focus();
+  }
+
+  hidePromotion() {
+    this.promotion.classList.remove('visible');
+    this.promotion.innerHTML = '';
   }
 
   private saveName() {
