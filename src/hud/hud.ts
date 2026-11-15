@@ -33,6 +33,27 @@ export class Hud {
   private els: Record<string, HTMLElement> = {};
   private banner: HTMLElement;
   private bannerTimer = 0;
+  /** Last value written per element and property, so a frame only touches the page where something changed. */
+  private shown = new Map<string, string>();
+
+  /** True when `value` differs from what was last written under `key` (and remembers it). */
+  private changed(key: string, value: string): boolean {
+    if (this.shown.get(key) === value) return false;
+    this.shown.set(key, value);
+    return true;
+  }
+  private text(k: string, value: string) {
+    if (this.changed('t:' + k, value)) this.els[k].textContent = value;
+  }
+  private data(k: string, value: string) {
+    if (this.changed('d:' + k, value)) this.els[k].dataset.s = value;
+  }
+  private css(k: string, prop: 'bottom' | 'height' | 'width' | 'transform' | 'visibility', value: string) {
+    if (this.changed(`${prop}:${k}`, value)) this.els[k].style[prop] = value;
+  }
+  private on(k: string, on: boolean) {
+    if (this.changed('on:' + k, on ? '1' : '')) this.els[k].classList.toggle('on', on);
+  }
 
   constructor(parent: HTMLElement) {
     this.root = document.createElement('div');
@@ -99,6 +120,9 @@ export class Hud {
     for (const e of this.root.querySelectorAll<HTMLElement>('[data-k]')) this.els[e.dataset.k!] = e;
     for (const e of this.root.querySelectorAll<HTMLElement>('[data-w]')) this.els['w-' + e.dataset.w] = e;
     this.banner = this.q('.banner');
+    // Elements the frame update writes to, looked up once.
+    const named = { needle: '.rpm-needle', coll: '.coll-fill', tank: '.gauge.water', wfill: '.water-fill', target: '.target', lesson: '.lesson' };
+    for (const [k, sel] of Object.entries(named)) this.els[k] = this.q(sel);
   }
 
   setVisible(v: boolean) {
@@ -107,13 +131,12 @@ export class Hud {
 
   /** Training instructions, shown where the coaching hints normally go. */
   setLesson(l: Lesson | null) {
-    const e = this.els;
-    this.q('.lesson').classList.toggle('on', !!l);
+    this.on('lesson', !!l);
     if (!l) return;
-    if (e.ltitle.textContent !== l.title) e.ltitle.textContent = l.title;
-    if (e.ltext.textContent !== l.text) e.ltext.textContent = l.text;
-    e.lbar.parentElement!.hidden = l.progress === null;
-    e.lbar.style.width = `${(l.progress ?? 0) * 100}%`;
+    this.text('ltitle', l.title);
+    this.text('ltext', l.text);
+    if (this.changed('lbar-hidden', l.progress === null ? '1' : '')) this.els.lbar.parentElement!.hidden = l.progress === null;
+    this.css('lbar', 'width', `${((l.progress ?? 0) * 100).toFixed(1)}%`);
   }
 
   flash(text: string, kind: 'danger' | 'info' = 'danger', seconds = 2.2) {
@@ -124,59 +147,56 @@ export class Hud {
 
   update(f: HudFrame, dt: number) {
     const s = f.state;
-    const e = this.els;
     const rpm = s.rpmPct;
-    e.rpm.textContent = rpm.toFixed(0);
-    this.q('.rpm-needle').style.bottom = `${rpmToPct(rpm)}%`;
-    const rpmState = rpm < 80 || rpm > RPM.overspeed ? 'bad' : rpm < RPM.lowWarn || rpm > RPM.highWarn ? 'warn' : 'good';
-    e.rpm.dataset.s = rpmState;
-    this.q('.coll-fill').style.height = `${s.collective * 100}%`;
+    this.text('rpm', rpm.toFixed(0));
+    this.css('needle', 'bottom', `${rpmToPct(rpm).toFixed(1)}%`);
+    this.data('rpm', rpm < 80 || rpm > RPM.overspeed ? 'bad' : rpm < RPM.lowWarn || rpm > RPM.highWarn ? 'warn' : 'good');
+    this.css('coll', 'height', `${(s.collective * 100).toFixed(1)}%`);
 
     const w = f.water ?? null;
-    const tank = this.q('.gauge.water');
-    tank.classList.toggle('on', !!w);
+    this.on('tank', !!w);
     if (w) {
-      this.q('.water-fill').style.height = `${w.level * 100}%`;
-      tank.dataset.s = w.state !== 'idle' ? w.state : w.level === 0 ? 'empty' : 'idle';
-      const label = w.state === 'fill' ? 'FILL' : w.level === 0 ? 'EMPTY' : 'WATER';
-      if (e.wlabel.textContent !== label) e.wlabel.textContent = label;
+      this.css('wfill', 'height', `${(w.level * 100).toFixed(1)}%`);
+      this.data('tank', w.state !== 'idle' ? w.state : w.level === 0 ? 'empty' : 'idle');
+      this.text('wlabel', w.state === 'fill' ? 'FILL' : w.level === 0 ? 'EMPTY' : 'WATER');
     }
 
     const kt = s.airspeed * MS_TO_KT;
-    e.ias.textContent = kt.toFixed(0);
-    e.ias.dataset.s = !f.engineOut ? 'neutral' : kt >= 50 && kt <= 75 ? 'good' : kt >= 40 && kt <= 85 ? 'warn' : 'bad';
+    this.text('ias', kt.toFixed(0));
+    this.data('ias', !f.engineOut ? 'neutral' : kt >= 50 && kt <= 75 ? 'good' : kt >= 40 && kt <= 85 ? 'warn' : 'bad');
     // Feet matter close to the ground (flare and cushion timing); above 100 ft round to 10.
     const altFt = Math.max(0, s.agl * M_TO_FT);
-    e.alt.textContent = (altFt < 100 ? Math.round(altFt) : Math.round(altFt / 10) * 10).toFixed(0);
+    this.text('alt', (altFt < 100 ? Math.round(altFt) : Math.round(altFt / 10) * 10).toFixed(0));
     const fpm = s.verticalSpeed * MS_TO_FPM;
-    e.vsi.textContent = `${fpm > 50 ? '▲' : fpm < -50 ? '▼' : ''}${Math.abs(Math.round(fpm / 50) * 50)}`;
-    e.vsi.dataset.s = fpm < -2200 ? 'bad' : fpm < -1700 ? 'warn' : 'neutral';
+    this.text('vsi', `${fpm > 50 ? '▲' : fpm < -50 ? '▼' : ''}${Math.abs(Math.round(fpm / 50) * 50)}`);
+    this.data('vsi', fpm < -2200 ? 'bad' : fpm < -1700 ? 'warn' : 'neutral');
 
     const pitchDeg = (s.pitch * 180) / Math.PI;
     const rollDeg = (s.roll * 180) / Math.PI;
-    e.horizon.setAttribute('transform', `rotate(${-rollDeg}) translate(0 ${clamp(pitchDeg, -30, 30) * 2})`);
-    e.pitch.textContent = `${pitchDeg >= 0 ? '+' : ''}${pitchDeg.toFixed(0)}`;
+    const horizon = `rotate(${(-rollDeg).toFixed(1)}) translate(0 ${(clamp(pitchDeg, -30, 30) * 2).toFixed(1)})`;
+    if (this.changed('horizon', horizon)) this.els.horizon.setAttribute('transform', horizon);
+    this.text('pitch', `${pitchDeg >= 0 ? '+' : ''}${pitchDeg.toFixed(0)}`);
 
-    e.hdg.textContent = String(Math.round(s.heading) % 360).padStart(3, '0');
-    e.wind.textContent = f.windKt < 1 ? 'CALM' : `${String(Math.round(f.windFromDeg)).padStart(3, '0')}°/${Math.round(f.windKt)}KT`;
+    this.text('hdg', String(Math.round(s.heading) % 360).padStart(3, '0'));
+    this.text('wind', f.windKt < 1 ? 'CALM' : `${String(Math.round(f.windFromDeg)).padStart(3, '0')}°/${Math.round(f.windKt)}KT`);
 
-    this.q('.target').style.visibility = f.target ? '' : 'hidden';
+    this.css('target', 'visibility', f.target ? '' : 'hidden');
     if (f.target && f.guidance) {
       const g = f.guidance;
-      e.tname.textContent = f.target.name.toUpperCase();
-      e.tdist.textContent = g.distance > 950 ? `${(g.distance / 1000).toFixed(1)} km` : `${Math.round(g.distance / 10) * 10} m`;
-      e.arrow.style.transform = `rotate(${(g.relBearing * 180) / Math.PI}deg)`;
-      e.reach.textContent = !f.engineOut ? '' : g.reach === 'ok' ? 'IN REACH' : g.reach === 'marginal' ? 'MARGINAL' : 'TOO FAR';
-      e.reach.dataset.s = g.reach === 'ok' ? 'good' : g.reach === 'marginal' ? 'warn' : 'bad';
+      this.text('tname', f.target.name.toUpperCase());
+      this.text('tdist', g.distance > 950 ? `${(g.distance / 1000).toFixed(1)} km` : `${Math.round(g.distance / 10) * 10} m`);
+      this.css('arrow', 'transform', `rotate(${((g.relBearing * 180) / Math.PI).toFixed(1)}deg)`);
+      this.text('reach', !f.engineOut ? '' : g.reach === 'ok' ? 'IN REACH' : g.reach === 'marginal' ? 'MARGINAL' : 'TOO FAR');
+      this.data('reach', g.reach === 'ok' ? 'good' : g.reach === 'marginal' ? 'warn' : 'bad');
     }
 
-    e['w-engine'].classList.toggle('on', f.engineOut);
-    e['w-lowrpm'].classList.toggle('on', f.engineOut && rpm < RPM.lowWarn && s.agl > 0.5);
-    e['w-highrpm'].classList.toggle('on', rpm > RPM.highWarn + 2);
-    e['w-lowg'].classList.toggle('on', f.lowG);
+    this.on('w-engine', f.engineOut);
+    this.on('w-lowrpm', f.engineOut && rpm < RPM.lowWarn && s.agl > 0.5);
+    this.on('w-highrpm', rpm > RPM.highWarn + 2);
+    this.on('w-lowg', f.lowG);
 
-    e.hint.textContent = f.hint ?? '';
-    e.hint.classList.toggle('on', !!f.hint);
+    this.text('hint', f.hint ?? '');
+    this.on('hint', !!f.hint);
 
     if (this.bannerTimer > 0) {
       this.bannerTimer -= dt;

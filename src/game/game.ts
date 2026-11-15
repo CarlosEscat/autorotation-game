@@ -12,6 +12,15 @@ import { computeGuidance, nextTargetAhead } from './guidance';
 import { ALL_LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, nextLevelIndex, unlocksFromOldLayouts } from './levels';
 import { FlightConfig, FlightSession } from './session';
 
+/** Behind the menus and while paused the scene barely moves: draw it at 20 fps to spare the battery. */
+const IDLE_FRAME = 1 / 20;
+/**
+ * Flying below about 28 fps for this long drops one step of graphics quality. The line sits under
+ * 30 fps on purpose: phones in a power-saving mode cap the frame rate there without struggling.
+ */
+const SLOW_FRAME = 1 / 28;
+const SLOW_SECONDS = 3;
+
 type GameState = 'menu' | 'flying' | 'paused' | 'results';
 
 const STORAGE_KEY = 'autorotation.v1';
@@ -102,6 +111,11 @@ export class Game {
   private briefing: number | null = null;
   private lastFrame = 0;
   private lowGTimer = 0;
+  /** Seconds since the scene was last drawn; behind a menu it is only redrawn every IDLE_FRAME. */
+  private undrawn = 0;
+  /** Smoothed frame time while flying, and how long it has been too slow. */
+  private frameAvg = 1 / 60;
+  private slowFor = 0;
 
   constructor(root: HTMLElement) {
     this.renderer = new GameRenderer(root, this.world);
@@ -237,6 +251,8 @@ export class Game {
     document.body.classList.toggle('has-water', this.session.waterLevel !== null);
     this.state = 'flying';
     this.lowGTimer = 0;
+    this.slowFor = 0;
+    this.frameAvg = 1 / 60;
   }
 
   private pause() {
@@ -304,8 +320,14 @@ export class Game {
     }
 
     const s = session.state;
-    this.renderer.setWaterDrop(this.state === 'flying' && session.dropping);
-    this.renderer.render(s, this.input.controls, { yaw: this.input.lookYaw, pitch: this.input.lookPitch }, this.state === 'paused' ? 0 : dt, session.tipOver);
+    const idle = this.state === 'menu' || this.state === 'paused';
+    this.undrawn += dt;
+    if (!idle || this.undrawn >= IDLE_FRAME) {
+      this.renderer.setWaterDrop(this.state === 'flying' && session.dropping);
+      this.renderer.render(s, this.input.controls, { yaw: this.input.lookYaw, pitch: this.input.lookPitch }, this.state === 'paused' ? 0 : this.undrawn, session.tipOver);
+      this.undrawn = 0;
+    }
+    if (this.state === 'flying') this.watchFrameRate(dt);
 
     if (this.state === 'flying' || this.state === 'results') {
       const target = this.targetIndex === null ? null : this.world.areas[this.targetIndex];
@@ -335,6 +357,16 @@ export class Game {
       this.audio.update(s.rpmPct, engineOut && s.rpmPct < RPM.lowWarn && session.phase === 'autorotation', now / 1000, s.aircraft.soundPitch);
     }
     requestAnimationFrame((t) => this.frame(t));
+  }
+
+  /** Devices that cannot hold the frame rate give up the shadow map first, then the extra resolution. */
+  private watchFrameRate(dt: number) {
+    this.frameAvg += (dt - this.frameAvg) * 0.05;
+    this.slowFor = this.frameAvg > SLOW_FRAME ? this.slowFor + dt : 0;
+    if (this.slowFor < SLOW_SECONDS) return;
+    this.slowFor = 0;
+    this.frameAvg = 1 / 60;
+    this.renderer.lowerQuality();
   }
 
   private handleEvents(session: FlightSession) {

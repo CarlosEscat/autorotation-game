@@ -1,3 +1,6 @@
+// B612 is bundled with the game: no third-party request before first paint, and it works offline.
+import '@fontsource/b612/latin-400.css';
+import '@fontsource/b612/latin-700.css';
 import './style.css';
 import { Game } from './game/game';
 

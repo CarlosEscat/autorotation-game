@@ -128,6 +128,14 @@ function shaded(geo: THREE.BufferGeometry, dark: number, light: number): THREE.B
   return g;
 }
 
+/** `geo` with one flat colour baked into its vertices, so differently coloured parts can share a mesh. */
+function painted(geo: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
+  const c = new THREE.Color(color), n = geo.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
+  return geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+
 const TRUNK_DARK = 0x3d2c20, TRUNK_LIGHT = 0x6b4f37;
 const trunk = (h: number, r0: number, r1: number) =>
   shaded(new THREE.CylinderGeometry(r1, r0, h, 4, 1, true).translate(0, h / 2, 0), TRUNK_DARK, TRUNK_LIGHT);
@@ -225,19 +233,17 @@ export function buildObstacles(world: World): THREE.Group {
   });
   group.add(rockMesh);
 
+  // All buildings are one mesh: wall and roof colours are baked into the vertices.
+  const houses: THREE.BufferGeometry[] = [];
   for (const b of world.obstacles.filter((o) => o.kind === 'building')) {
-    const house = new THREE.Group();
-    const walls = new THREE.Mesh(new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!), new THREE.MeshLambertMaterial({ color: b.w! > 12 ? 0xa94a36 : 0xe2d6bb, flatShading: true }));
-    walls.position.y = (b.height * 0.65) / 2;
-    const roofGeo = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
-    roofGeo.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75);
-    const roof = new THREE.Mesh(roofGeo, new THREE.MeshLambertMaterial({ color: 0x5b5652, flatShading: true }));
-    roof.position.y = b.height * 0.65 + (b.height * 0.35) / 2;
-    house.add(walls, roof);
-    house.position.set(b.x, b.base, b.z);
-    house.rotation.y = b.rot ?? 0;
-    group.add(house);
+    const walls = new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!).translate(0, (b.height * 0.65) / 2, 0);
+    const roof = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
+    roof.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75).translate(0, b.height * 0.65 + (b.height * 0.35) / 2, 0);
+    for (const [geo, color] of [[walls, b.w! > 12 ? 0xa94a36 : 0xe2d6bb], [roof, 0x5b5652]] as const) {
+      houses.push(painted(geo, color).rotateY(b.rot ?? 0).translate(b.x, b.base, b.z));
+    }
   }
+  if (houses.length) group.add(new THREE.Mesh(mergeGeometries(houses)!, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
   for (const t of world.obstacles.filter((o) => o.kind === 'tower')) group.add(buildTower(t.x, t.base, t.z, t.height));
   return group;
 }
@@ -275,19 +281,18 @@ export function buildRunways(world: World): THREE.Group {
   for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
     const hw = a.halfWidth, hl = a.halfLength;
-    const strip = (mat: THREE.Material, w: number, l: number, x: number, z: number, y: number) => {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l).rotateX(-Math.PI / 2), mat);
-      m.position.set(x, y, z);
-      g.add(m);
-    };
-    strip(asphalt, hw * 2, hl * 2, 0, 0, 0.06);
-    const line = (w: number, l: number, x: number, z: number) => strip(paint, w, l, x, z, 0.1);
+    // Every marking of a runway goes into one geometry: one draw instead of one per line.
+    const lines: THREE.BufferGeometry[] = [];
+    const plane = (w: number, l: number, x: number, z: number, y: number) => new THREE.PlaneGeometry(w, l).rotateX(-Math.PI / 2).translate(x, y, z);
+    g.add(new THREE.Mesh(plane(hw * 2, hl * 2, 0, 0, 0.06), asphalt));
+    const line = (w: number, l: number, x: number, z: number) => lines.push(plane(w, l, x, z, 0.1));
     for (const side of [-1, 1]) {
       line(0.9, hl * 2 - 2, side * (hw - 1.2), 0); // edge lines
       for (let k = 0; k < 4; k++) line(1.6, 30, side * (3 + k * 2.8), side * (hl - 21)); // threshold stripes
       for (const x of [-6, 6]) line(3, 45, x, side * (hl - 150)); // aiming points
     }
     for (let z = -hl + 90; z <= hl - 90; z += 60) line(0.9, 30, 0, z); // centreline dashes
+    g.add(new THREE.Mesh(mergeGeometries(lines)!, paint));
     g.position.set(a.cx, a.elevation, a.cz);
     g.rotation.y = a.rotation;
     group.add(g);
@@ -305,18 +310,12 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(0x8e9294));
   slab.position.y = -0.5;
   g.add(slab);
-  const legMat = mat(0x9a9c9c);
-  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 16, 6), legMat);
-    leg.position.set(sx * (hw - 2), -9, sz * (hl - 2));
-    g.add(leg);
-  }
-  const flat = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, z = 0) => {
-    const mesh = new THREE.Mesh(geo.rotateX(-Math.PI / 2), m);
-    mesh.position.set(x, 0.03, z);
-    g.add(mesh);
-  };
+  const legs = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => new THREE.CylinderGeometry(0.7, 0.7, 16, 6).translate(sx * (hw - 2), -9, sz * (hl - 2)));
+  g.add(new THREE.Mesh(mergeGeometries(legs)!, mat(0x9a9c9c)));
+  // Markings are merged per colour: two draws for the whole deck.
   const yellow = new THREE.MeshLambertMaterial({ color: 0xffd23a, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const marks = new Map<THREE.Material, THREE.BufferGeometry[]>([[yellow, []], [paint, []]]);
+  const flat = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, z = 0) => marks.get(m)!.push(geo.rotateX(-Math.PI / 2).translate(x, 0.03, z));
   for (const side of [-1, 1]) {
     flat(new THREE.PlaneGeometry(hw * 2, 1.4), yellow, 0, side * (hl - 0.7)); // edge band
     flat(new THREE.PlaneGeometry(1.4, hl * 2 - 2.8), yellow, side * (hw - 0.7), 0);
@@ -324,6 +323,7 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   }
   flat(new THREE.PlaneGeometry(5.2, 2.0), paint); // H crossbar
   flat(new THREE.RingGeometry(7.4, 8.6, 32), yellow);
+  for (const [m, geos] of marks) g.add(new THREE.Mesh(mergeGeometries(geos)!, m));
   g.position.set(a.cx, a.elevation, a.cz);
   g.rotation.y = a.rotation;
   return g;
@@ -335,30 +335,27 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
   const markerMat = new THREE.MeshLambertMaterial({ color: 0xf4efe4, flatShading: true });
   const sockMat = new THREE.MeshLambertMaterial({ color: 0xf2692a, flatShading: true });
   const poleMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+  // One geometry each for all the cones, poles and socks of the map.
+  const cones: THREE.BufferGeometry[] = [], poles: THREE.BufferGeometry[] = [], socks: THREE.BufferGeometry[] = [];
+  const m4 = new THREE.Matrix4(), euler = new THREE.Euler();
   for (const a of world.areas) {
     const c = Math.cos(a.rotation), s = Math.sin(a.rotation);
     const toWorld = (lx: number, lz: number) => ({ x: a.cx + lx * c + lz * s, z: a.cz - lx * s + lz * c });
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       const p = toWorld(sx * a.halfWidth, sz * a.halfLength);
-      const m = new THREE.Mesh(new THREE.ConeGeometry(0.8, 1.2, 4), markerMat);
-      m.position.set(p.x, world.heightAt(p.x, p.z) + 0.6, p.z);
-      group.add(m);
+      cones.push(new THREE.ConeGeometry(0.8, 1.2, 4).translate(p.x, world.heightAt(p.x, p.z) + 0.6, p.z));
     }
     const p = a.deckHeight === undefined ? toWorld(a.halfWidth + 6, -a.halfLength * 0.6) : toWorld(a.halfWidth - 1, -a.halfLength + 1);
     const ground = world.heightAt(p.x, p.z);
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6, 4), poleMat);
-    pole.position.set(p.x, ground + 3, p.z);
+    poles.push(new THREE.CylinderGeometry(0.08, 0.08, 6, 4).translate(p.x, ground + 3, p.z));
     const sockGeo = new THREE.ConeGeometry(0.45, 2.6, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 1.3);
-    const sock = new THREE.Mesh(sockGeo, sockMat);
-    sock.material.side = THREE.DoubleSide;
     // The sock (wide end at the pole, along +Z) streams downwind: heading = from + 180°.
     const to = ((windFromDeg + 180) * Math.PI) / 180;
-    sock.position.set(p.x, ground + 5.8, p.z);
-    sock.rotation.order = 'YXZ';
-    sock.rotation.y = Math.atan2(Math.sin(to), -Math.cos(to));
-    sock.rotation.x = windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15);
-    group.add(pole, sock);
+    euler.set(windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15), Math.atan2(Math.sin(to), -Math.cos(to)), 0, 'YXZ');
+    socks.push(sockGeo.applyMatrix4(m4.makeRotationFromEuler(euler).setPosition(p.x, ground + 5.8, p.z)));
   }
+  sockMat.side = THREE.DoubleSide;
+  if (cones.length) group.add(new THREE.Mesh(mergeGeometries(cones)!, markerMat), new THREE.Mesh(mergeGeometries(poles)!, poleMat), new THREE.Mesh(mergeGeometries(socks)!, sockMat));
   return group;
 }
 
@@ -431,17 +428,18 @@ export function buildClouds(): THREE.Group {
   const rnd = mulberry32(11);
   // Flat, soft-edged puffs: sunlit tops, warm grey undersides rather than a uniform glow.
   const mat = new THREE.MeshLambertMaterial({ color: 0xf4eee2, emissive: 0x9a9288 });
+  // The whole sky's worth of puffs is one geometry: one draw instead of a hundred.
+  const puffs: THREE.BufferGeometry[] = [];
   for (let i = 0; i < 26; i++) {
-    const cloud = new THREE.Group();
+    const cloud: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 4; k++) {
-      const puff = new THREE.Mesh(new THREE.IcosahedronGeometry(30 + rnd() * 30, 1), mat);
-      puff.position.set(k * 40 - 60, rnd() * 6, rnd() * 30);
-      puff.scale.set(1.3, 0.28, 1);
-      cloud.add(puff);
+      const puff = new THREE.IcosahedronGeometry(30 + rnd() * 30, 1).scale(1.3, 0.28, 1);
+      cloud.push(puff.translate(k * 40 - 60, rnd() * 6, rnd() * 30));
     }
     const a = rnd() * Math.PI * 2, r = 600 + rnd() * 1800;
-    cloud.position.set(Math.cos(a) * r, 650 + rnd() * 300, Math.sin(a) * r);
-    g.add(cloud);
+    const x = Math.cos(a) * r, y = 650 + rnd() * 300, z = Math.sin(a) * r;
+    for (const puff of cloud) puffs.push(puff.translate(x, y, z));
   }
+  g.add(new THREE.Mesh(mergeGeometries(puffs)!, mat));
   return g;
 }

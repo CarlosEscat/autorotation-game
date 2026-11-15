@@ -33,6 +33,15 @@ export class GameRenderer {
   private sun: THREE.DirectionalLight;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
+  // Scratch vectors, reused every frame so the render loop allocates nothing.
+  private outlet = new THREE.Vector3();
+  private velocity = new THREE.Vector3();
+  private desired = new THREE.Vector3();
+  private projected = new THREE.Vector3();
+  /** Cap on the pixel ratio; lowered by `lowerQuality` on devices that cannot keep up. */
+  private maxPixelRatio = 1.5;
+  /** Height of the surface a water drop lands on: the ground, or the lake. */
+  private surfaceHeight = (x: number, z: number) => Math.max(this.world.heightAt(x, z), this.world.surfaceAt(x, z) === 'water' ? this.world.waterLevel : -1e9);
   private spray = new WaterSpray();
   private dropping = false;
   private fireFx: FireFx | null = null;
@@ -134,7 +143,10 @@ export class GameRenderer {
 
   /** Windsocks depend on the wind of the current flight. */
   setWind(fromDeg: number, kt: number) {
-    if (this.markers) this.scene.remove(this.markers);
+    if (this.markers) {
+      this.scene.remove(this.markers);
+      this.markers.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    }
     this.markers = buildAreaMarkers(this.world, fromDeg, kt);
     this.scene.add(this.markers);
   }
@@ -188,12 +200,25 @@ export class GameRenderer {
     const h = this.container.clientHeight || window.innerHeight;
     // Native resolution, capped at 1.5x so retina screens don't pay for 4x the pixels;
     // the same on every window size, unlike the old area-based downscale.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.maxPixelRatio));
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     // Portrait screens get a wider vertical FOV so the horizon stays usable.
     this.camera.fov = h > w * 1.15 ? 88 : this.mode === 'cockpit' ? 72 : 60;
     this.camera.updateProjectionMatrix();
+  }
+
+  /**
+   * Trades looks for speed, one step per call: first the real shadow gives way to the blob shadow,
+   * then the picture is drawn at the screen's base resolution. Returns false once nothing is left to drop.
+   */
+  lowerQuality(): boolean {
+    if (this.shadows) this.shadows = false;
+    else if (this.maxPixelRatio > 1) {
+      this.maxPixelRatio = 1;
+      this.resize();
+    } else return false;
+    return true;
   }
 
   render(s: HelicopterState, c: ControlInputs, look: { yaw: number; pitch: number }, frameDt: number, tipOver = 0) {
@@ -204,9 +229,8 @@ export class GameRenderer {
     h.root.rotation.set(s.pitch, s.yaw, -s.roll - tipOver);
 
     // Water leaves the belly tank, just below the reference point.
-    const outlet = h.root.localToWorld(new THREE.Vector3(0, -A.skidHeight + 0.4, -0.4));
-    const ground = (x: number, z: number) => Math.max(this.world.heightAt(x, z), this.world.surfaceAt(x, z) === 'water' ? this.world.waterLevel : -1e9);
-    this.spray.update(frameDt, this.dropping, outlet, new THREE.Vector3(s.vel.x, s.vel.y, s.vel.z), ground);
+    const outlet = h.root.localToWorld(this.outlet.set(0, -A.skidHeight + 0.4, -0.4));
+    this.spray.update(frameDt, this.dropping, outlet, this.velocity.set(s.vel.x, s.vel.y, s.vel.z), this.surfaceHeight);
 
     this.fireFx?.update(frameDt);
 
@@ -245,8 +269,8 @@ export class GameRenderer {
     } else {
       // The chase camera stands further back from a bigger helicopter.
       const size = A.rotorRadius / AIRCRAFT.rotorRadius;
-      const back = new THREE.Vector3(Math.sin(s.yaw), 0, Math.cos(s.yaw)).multiplyScalar(17 * size);
-      const desired = new THREE.Vector3(s.pos.x + back.x, s.pos.y + 4.5 * size, s.pos.z + back.z);
+      const back = 17 * size;
+      const desired = this.desired.set(s.pos.x + Math.sin(s.yaw) * back, s.pos.y + 4.5 * size, s.pos.z + Math.cos(s.yaw) * back);
       const ground = this.world.heightAt(desired.x, desired.z) + 2;
       desired.y = Math.max(desired.y, ground);
       if (Number.isNaN(this.chasePos.x)) this.chasePos.copy(desired);
@@ -274,7 +298,7 @@ export class GameRenderer {
 
   /** Screen position of a world point (for HUD markers), or null when behind the camera. */
   project(x: number, y: number, z: number): { x: number; y: number } | null {
-    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const v = this.projected.set(x, y, z).project(this.camera);
     if (v.z > 1) return null;
     return { x: (v.x + 1) / 2, y: (1 - v.y) / 2 };
   }
