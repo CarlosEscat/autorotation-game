@@ -10,6 +10,7 @@ import { World, createWorld } from '../world/world';
 import { FixedStepper } from './fixedStep';
 import { computeGuidance, nextTargetAhead } from './guidance';
 import { ALL_LEVELS, LevelDef, Objective, ObjectiveStatus, TRAINING_LAYOUT, nextLevelIndex, unlocksFromOldLayouts } from './levels';
+import { Pilot, newPilot, normalizePilot, updateRank } from './pilot';
 import { FlightConfig, FlightSession } from './session';
 
 /** Behind the menus and while paused the scene barely moves: draw it at 20 fps to spare the battery. */
@@ -34,6 +35,8 @@ interface Saved {
   /** Layout of the training menu this save was last migrated to. */
   trainingLayout?: number;
   muted: boolean;
+  /** The player's licence: name, callsign, logbook and rank. */
+  pilot: Pilot;
 }
 
 interface ActiveLevel {
@@ -59,6 +62,7 @@ function load(): Saved {
     unlocked: [],
     trainingLayout: TRAINING_LAYOUT,
     muted: false,
+    pilot: newPilot(),
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -66,7 +70,8 @@ function load(): Saved {
     const parsed = JSON.parse(raw) as Partial<Saved>;
     // Older saves predate newer settings or offered other choices (70 kt, 8 kt wind): snap them onto today's.
     // The layout comes from the save alone: one without it predates the migration.
-    const saved = { ...fallback, ...parsed, settings: normalizeSettings(parsed.settings), trainingLayout: parsed.trainingLayout };
+    const saved = { ...fallback, ...parsed, settings: normalizeSettings(parsed.settings), trainingLayout: parsed.trainingLayout, pilot: normalizePilot(parsed.pilot) };
+    updateRank(saved.pilot, saved.training);
     return migrateTraining(saved);
   } catch {
     return fallback;
