@@ -147,8 +147,13 @@ export class Screens {
     this.licence.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement).tagName !== 'INPUT') return;
       e.stopPropagation();
-      if (e.key === 'Enter') this.saveName();
-      else if (e.key === 'Escape') this.redrawLicence(false);
+      if (e.isComposing) return;
+      // Saving moves focus to the Edit key: without this the same keypress would press it and reopen the form.
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.saveName();
+      }
+      if (e.key === 'Escape') this.redrawLicence(false);
     });
     this.licence.addEventListener('keyup', (e) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') e.stopPropagation();

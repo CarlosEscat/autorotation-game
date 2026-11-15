@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FlightSample, LogRecorder, emptyLogbook, sampleOf, totalSeconds } from '../src/game/logbook';
-import { DEFAULT_CONFIG, FlightSession } from '../src/game/session';
+import { DEFAULT_CONFIG, FlightConfig, FlightSession } from '../src/game/session';
+import { neutralControls } from '../src/sim/state';
 import { createWorld } from '../src/world/world';
 
 const air: FlightSample = { aircraft: 'light', airborne: true, crashed: false, fireOut: false };
@@ -83,5 +84,28 @@ describe('logbook', () => {
     expect(b.flights).toBe(2);
     run(new LogRecorder(b), air, 4);
     expect(b.flights).toBe(2); // abandoned after 4 s
+  });
+});
+
+describe('logbook on real flights', () => {
+  /** Engine fails, the pilot lowers the collective and never flares: the helicopter hits the ground hard. */
+  const crashFlight = (cfg: Partial<FlightConfig>) => {
+    const session = new FlightSession(createWorld(), { ...DEFAULT_CONFIG, ...cfg });
+    const b = emptyLogbook();
+    const r = new LogRecorder(b);
+    const c = neutralControls(session.state.collective);
+    for (let i = 0; session.phase !== 'done' && i < 120 * 300; i++) {
+      if (!session.state.engineRunning) c.collective = 0;
+      session.step(c, 1 / 120);
+      r.step(sampleOf(session), 1 / 120);
+    }
+    return { session, b };
+  };
+
+  it.each([{ difficulty: 'easy' as const }, { difficulty: 'normal' as const }, { altitudeFt: 700 }, { airspeedKt: 90 }])('a crash is never also a landing (%o)', (cfg) => {
+    const { session, b } = crashFlight(cfg);
+    expect(session.crashed).toBe(true);
+    expect(b.crashes).toBe(1);
+    expect(b.landings).toBe(0);
   });
 });

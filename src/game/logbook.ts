@@ -30,7 +30,9 @@ export interface FlightSample {
 export function sampleOf(session: FlightSession): FlightSample {
   return {
     aircraft: session.config.aircraft ?? 'light',
-    airborne: session.phase !== 'ground' && session.phase !== 'done' && session.state.agl > 0.5,
+    // On the ground is what the session says it is (touched down, or resting on the skids), never a height:
+    // a helicopter about to hit the ground is still flying, and what follows is a crash, not a landing.
+    airborne: session.phase !== 'ground' && session.phase !== 'done' && !session.onSkids,
     crashed: session.crashed,
     fireOut: session.fire?.out ?? false,
   };
