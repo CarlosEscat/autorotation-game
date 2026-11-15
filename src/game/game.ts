@@ -144,6 +144,13 @@ export class Game {
       onMute: () => this.toggleMute(),
       onBriefing: (i) => this.toBriefing(i),
       onStartLevel: (i) => this.startLevel(i),
+      onLicence: () => this.screens.showLicence(this.saved.pilot, this.saved.training),
+      onPilotName: (name, callsign) => {
+        Object.assign(this.saved.pilot, { name, callsign });
+        save(this.saved);
+        this.screens.setPilot(this.saved.pilot, this.saved.training);
+        this.screens.showLicence(this.saved.pilot, this.saved.training);
+      },
       onNextLevel: () => this.toBriefing(nextLevelIndex(this.level?.index ?? -1) ?? -1),
     });
     attachKeyboard(this.input);
@@ -307,6 +314,7 @@ export class Game {
     this.touch.setVisible(false);
     document.body.classList.remove('flying');
     // New players are steered to Training; once a lesson is passed, Free flight takes the lead.
+    this.screens.setPilot(this.saved.pilot, this.saved.training);
     this.screens.setHero(Object.values(this.saved.training).some((n) => n > 0) ? 'free' : 'training');
     this.screens.show('menu');
     this.audio.suspend();

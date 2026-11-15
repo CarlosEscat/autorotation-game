@@ -3,6 +3,9 @@ import { Difficulty, FlightConfig } from '../game/session';
 import { AIRCRAFT_TYPES, AircraftId } from '../sim/aircraft';
 import { ALL_LEVELS, HEAVY_LEVELS, HEAVY_TIER, LEVELS, LessonState, LevelDef, ObjectiveStatus, TIERS, TierDef, heavyStates, lessonStates, tierOf } from '../game/levels';
 import { KEY_WORDS, Mode } from '../game/hints';
+import { MAX_STARS, RANK_TITLES, RATINGS, Requirement, Stars, formatFlightTime, nextRank, ratingsHeld, requirementsFor, totalStars } from '../game/licence';
+import { totalSeconds } from '../game/logbook';
+import { CALLSIGN_MAX, DEFAULT_NAME, NAME_MAX, Pilot, cleanName } from '../game/pilot';
 import { BRIEFINGS } from './briefings';
 
 export interface Settings {
@@ -104,9 +107,11 @@ export interface MenuHandlers {
   onBriefing(index: number): void;
   onStartLevel(index: number): void;
   onNextLevel(): void;
+  onLicence(): void;
+  onPilotName(name: string, callsign: string): void;
 }
 
-type ScreenName = 'menu' | 'free' | 'tutorial' | 'pause' | 'results' | 'training' | 'briefing';
+type ScreenName = 'menu' | 'free' | 'tutorial' | 'pause' | 'results' | 'training' | 'briefing' | 'licence';
 
 export class Screens {
   private menu: HTMLElement;
@@ -116,6 +121,9 @@ export class Screens {
   private results: HTMLElement;
   private training: HTMLElement;
   private briefing: HTMLElement;
+  private licence: HTMLElement;
+  /** What the licence screen is showing, so its Edit and Cancel keys can redraw it. */
+  private licenceOf: { pilot: Pilot; stars: Stars } | null = null;
   private all: HTMLElement[];
 
   constructor(
@@ -130,7 +138,18 @@ export class Screens {
     this.results = screen(parent, 'results');
     this.training = screen(parent, 'training');
     this.briefing = screen(parent, 'briefing');
-    this.all = [this.menu, this.free, this.tutorial, this.pause, this.results, this.training, this.briefing];
+    this.licence = screen(parent, 'licence');
+    this.all = [this.menu, this.free, this.tutorial, this.pause, this.results, this.training, this.briefing, this.licence];
+    // Typing a name must not reach the game's keys (M mutes, P pauses, Enter confirms).
+    this.licence.addEventListener('keydown', (e) => {
+      if ((e.target as HTMLElement).tagName !== 'INPUT') return;
+      e.stopPropagation();
+      if (e.key === 'Enter') this.saveName();
+      else if (e.key === 'Escape') this.redrawLicence(false);
+    });
+    this.licence.addEventListener('keyup', (e) => {
+      if ((e.target as HTMLElement).tagName === 'INPUT') e.stopPropagation();
+    });
     this.buildMenu();
     this.buildFreeFlight();
     this.buildTutorial();
@@ -176,6 +195,10 @@ export class Screens {
       else if (a === 'brief') this.handlers.onBriefing(Number(el!.dataset.i));
       else if (a === 'level') this.handlers.onStartLevel(Number(el!.dataset.i));
       else if (a === 'next') this.handlers.onNextLevel();
+      else if (a === 'licence') this.handlers.onLicence();
+      else if (a === 'lic-edit') this.redrawLicence(true);
+      else if (a === 'lic-cancel') this.redrawLicence(false);
+      else if (a === 'lic-save') this.saveName();
     });
   }
 
@@ -195,6 +218,7 @@ export class Screens {
         <p class="tagline">Your engine is about to quit. Get it down in one piece.</p>
         <button class="key main" data-a="training"><span class="lamp"></span><span class="legend">Training</span><span class="desc">Guided lessons in four tiers, from first hover to checkride.</span></button>
         <button class="key main" data-a="free"><span class="lamp"></span><span class="legend">Free flight</span><span class="desc">Choose your helicopter, altitude, speed and wind. Land it your way.</span></button>
+        <button class="key licence-strip" data-a="licence"></button>
         <button class="key small" data-a="howto"><span class="legend">How to fly</span></button>
         <p class="disclaimer">An educational arcade prototype. Not a flight-training device, and not a source of approved emergency procedures.</p>
       </div>`;
@@ -306,6 +330,81 @@ export class Screens {
   /** Green border and lit lamp on the key a player most likely wants. */
   setHero(which: 'training' | 'free') {
     for (const k of this.menu.querySelectorAll<HTMLElement>('.key.main')) k.classList.toggle('hero', k.dataset.a === which);
+  }
+
+  /** The licence card on the main menu: who you are, your rank, and how far the next one is. */
+  setPilot(pilot: Pilot, stars: Stars) {
+    const name = pilot.name || DEFAULT_NAME;
+    const next = nextRank(pilot.rank);
+    const reqs = next ? requirementsFor(next, stars, pilot.logbook) : [];
+    const met = reqs.filter((r) => r.met).length;
+    const note = next ? `${met} of ${reqs.length} for ${RANK_TITLES[next]}` : 'Top rank held';
+    const frac = next ? met / reqs.length : 1;
+    const strip = this.menu.querySelector<HTMLElement>('.licence-strip')!;
+    strip.setAttribute('aria-label', `Pilot licence: ${name}${pilot.callsign ? `, callsign ${pilot.callsign}` : ''}, ${RANK_TITLES[pilot.rank]}. ${next ? `${met} of ${reqs.length} requirements met for ${RANK_TITLES[next]}` : note}.`);
+    strip.innerHTML = `<span class="lic-row"><span class="lic-name">${esc(name)}${pilot.callsign ? ` · “${esc(pilot.callsign)}”` : ''}</span><span class="lic-rank">${RANK_TITLES[pilot.rank]}</span></span>
+      <span class="lic-row"><span class="meter" aria-hidden="true"><span style="width:${Math.round(frac * 100)}%"></span></span><span class="lic-note">${note}</span></span>`;
+  }
+
+  /** The full licence: rank, ratings, the checklist for the next rank, and the logbook. */
+  showLicence(pilot: Pilot, stars: Stars) {
+    this.licenceOf = { pilot, stars };
+    this.redrawLicence(false);
+    this.show('licence');
+  }
+
+  private redrawLicence(editing: boolean) {
+    if (!this.licenceOf) return;
+    const { pilot, stars } = this.licenceOf;
+    const held = ratingsHeld(stars);
+    const next = nextRank(pilot.rank);
+    const b = pilot.logbook;
+    const who = editing
+      ? `<div class="lic-edit">
+          <label>Name<input id="lic-name" type="text" maxlength="${NAME_MAX}" value="${esc(pilot.name)}" autocomplete="off" autocapitalize="words" spellcheck="false"/></label>
+          <label>Callsign<input id="lic-call" type="text" maxlength="${CALLSIGN_MAX}" value="${esc(pilot.callsign)}" autocomplete="off" spellcheck="false"/></label>
+          <div class="buttons"><button class="btn primary" data-a="lic-save">Save</button><button class="btn" data-a="lic-cancel">Cancel</button></div>
+        </div>`
+      : `<div class="lic-who"><div><div class="lic-bigname">${esc(pilot.name || DEFAULT_NAME)}</div>
+          <div class="lic-call">${pilot.callsign ? `Callsign “${esc(pilot.callsign)}”` : 'No callsign yet'}</div></div>
+          <button class="key small" data-a="lic-edit">Edit</button></div>`;
+    const stamp = (r: (typeof RATINGS)[number]) => {
+      const has = held.includes(r.id);
+      return `<li class="stamp${has ? ' held' : ''}"><span class="stamp-name">${has ? '✓ ' : ''}${esc(r.title)}</span><span class="stamp-how">${has ? 'Rating held' : esc(r.earnedBy)}</span></li>`;
+    };
+    const req = (r: Requirement) => {
+      const have = r.kind === 'time' ? formatFlightTime(r.have) : String(r.have);
+      const mark = r.kind === 'flag' || r.met
+        ? `<span class="req-box" aria-hidden="true">${r.met ? '✓' : ''}</span>`
+        : `<span class="meter" aria-hidden="true"><span style="width:${Math.round(Math.min(1, r.have / r.need) * 100)}%"></span></span>`;
+      return `<li class="req${r.met ? ' met' : ''}">${mark}<span class="req-label">${esc(r.label)}</span>
+        <span class="req-have">${r.kind === 'flag' ? (r.met ? 'Done' : 'Not yet') : `${have} so far`}</span></li>`;
+    };
+    const nextBlock = next
+      ? `<h3>Next rank: ${RANK_TITLES[next]}</h3><ul class="reqs">${requirementsFor(next, stars, b).map(req).join('')}</ul>`
+      : `<p class="lic-top">You hold the top rank. The logbook keeps counting.</p>`;
+    this.licence.innerHTML = `<div class="panel wide lic-panel">${SCREWS}
+      <header class="sub-head">${backKey()}<div><h2 class="screen-title">Pilot licence</h2>
+        <p class="subtitle" aria-label="${totalStars(stars)} of ${MAX_STARS} stars">★ ${totalStars(stars)} / ${MAX_STARS}</p></div></header>
+      ${who}
+      <div class="lic-rankline"><span class="engraved">Rank</span><span class="lic-rank big">${RANK_TITLES[pilot.rank]}</span></div>
+      <h3>Ratings</h3><ul class="stamps">${RATINGS.map(stamp).join('')}</ul>
+      ${nextBlock}
+      <h3>Logbook</h3>
+      <dl class="logbook">
+        <div><dt>Flight time</dt><dd>${formatFlightTime(totalSeconds(b))}<small> Trainer ${formatFlightTime(b.airSeconds.light)} · Heavy ${formatFlightTime(b.airSeconds.heavy)}</small></dd></div>
+        <div><dt>Flights</dt><dd>${b.flights}</dd></div>
+        <div><dt>Landings</dt><dd>${b.landings}</dd></div>
+        <div><dt>Crashes</dt><dd>${b.crashes}</dd></div>
+        <div><dt>Fires put out</dt><dd>${b.firesOut}</dd></div>
+      </dl>
+    </div>`;
+    this.licence.querySelector<HTMLElement>(editing ? '#lic-name' : '[data-a="lic-edit"]')?.focus();
+  }
+
+  private saveName() {
+    const v = (id: string) => this.licence.querySelector<HTMLInputElement>(id)?.value ?? '';
+    this.handlers.onPilotName(cleanName(v('#lic-name'), NAME_MAX), cleanName(v('#lic-call'), CALLSIGN_MAX));
   }
 
   /** The training path as four tier columns; see `lessonStates` for passed / next / locked. */

@@ -308,6 +308,52 @@ body.touch .hint { bottom: calc(24px + var(--safe-b)); max-width: min(38vw, 380p
 .brief-pass { margin: 4px 0 8px; font-size: 14px; color: var(--legend-2b); }
 .lesson-recap { margin: 10px 0 4px; font-size: 14px; color: var(--legend-2b); }
 
+/* Pilot licence: the strip on the main menu and the licence screen. */
+.meter { display: block; flex: none; width: 72px; height: 8px; border-radius: 3px; background: var(--well); box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.8); overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--lit-cyan); }
+.key.licence-strip { display: flex; width: 100%; flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 16px; margin-bottom: 14px; text-align: left; font-size: 15px; }
+.lic-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.lic-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lic-rank { flex: none; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--lit-green); }
+.lic-rank.big { font-size: 20px; font-weight: 700; }
+.lic-note { flex: 1; font: 400 13px/1.3 var(--menu-font); color: var(--legend-2); text-shadow: none; }
+.lic-who { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 4px 0 14px; }
+.lic-bigname { font: 700 24px/1.15 var(--menu-font); overflow-wrap: anywhere; }
+.lic-call { margin-top: 4px; font-size: 14px; color: var(--legend-2); }
+.lic-rankline { display: flex; align-items: baseline; gap: 14px; }
+.lic-rankline .engraved { margin: 0; }
+.lic-top { margin: 14px 0 0; color: var(--legend-2); }
+.lic-edit { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 14px; }
+.lic-edit label { display: flex; flex-direction: column; gap: 6px; font: 700 12px/1 var(--menu-font); text-transform: uppercase; letter-spacing: 0.2em; color: var(--legend-muted); }
+.lic-edit input { min-height: 44px; min-width: 0; padding: 8px 12px; border: 1px solid #0a0b0c; border-radius: 6px; background: var(--well); color: var(--legend); font: 400 17px var(--menu-font); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7); }
+.lic-edit input:focus-visible { outline: 3px solid var(--lit-cyan); outline-offset: 2px; }
+.lic-edit .buttons { grid-column: 1 / -1; }
+.stamps, .reqs { list-style: none; margin: 0; padding: 0; }
+.stamps { display: flex; flex-wrap: wrap; gap: 8px; }
+.stamp { flex: 1 1 150px; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid #0a0b0c; border-radius: 6px; background: var(--locked-bg); color: var(--locked); }
+.stamp.held { border-color: var(--lit-green); color: var(--legend); background: var(--well-col); }
+.stamp-name { font: 700 14px/1.2 var(--menu-font); text-transform: uppercase; letter-spacing: 0.1em; }
+.stamp.held .stamp-name { color: var(--lit-green); }
+.stamp-how { font-size: 13px; line-height: 1.3; }
+.req { display: flex; align-items: center; gap: 12px; padding: 7px 0; font-size: 15px; }
+.req-box { flex: none; width: 72px; text-align: center; font-weight: 700; color: var(--lit-green); }
+.req-box:empty::before { content: ''; display: inline-block; width: 12px; height: 12px; border: 2px solid var(--locked); border-radius: 2px; vertical-align: middle; }
+.req-label { flex: 1; }
+.req.met .req-label { color: var(--lit-green); }
+.req-have { color: var(--legend-muted); font-size: 14px; text-align: right; }
+.logbook { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 0; }
+.logbook > div { padding: 10px 12px; border-radius: 8px; background: var(--well); box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7); }
+.logbook > div:first-child { grid-column: 1 / -1; }
+.logbook dt { font: 700 12px/1 var(--menu-font); text-transform: uppercase; letter-spacing: 0.2em; color: var(--legend-muted); }
+.logbook dd { margin: 6px 0 0; font: 700 22px/1.1 var(--menu-font); }
+.logbook dd small { margin-left: 8px; font: 400 13px var(--menu-font); color: var(--legend-2); }
+@media (max-width: 480px) {
+  .lic-edit { grid-template-columns: 1fr; }
+  .key.licence-strip .lic-row:first-child { flex-wrap: wrap; gap: 4px 12px; }
+  .req { flex-wrap: wrap; }
+  .req-have { flex-basis: 100%; text-align: left; padding-left: 84px; }
+}
+
 @media (max-width: 1100px) {
   .tiers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
