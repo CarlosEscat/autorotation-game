@@ -59,6 +59,8 @@ Coaching hints (on by default, toggle in the menu) suggest the next action in co
 
 **Difficulty:** *Easy (arcade)*, the default, slows the rotor RPM decay, adds a landing assist below about 65 ft (limits the sink rate, bleeds off ground speed, levels the skids) and widens the touchdown limits 2.5×. *Realistic* has none of that.
 
+**Night:** Free flight can be flown by day or on a moonlit night (*Time of day*). At night the runway, the Lake Helipad and the houses are lit, both helicopters carry position lights, a flashing beacon and a landing light that lights the ground ahead, and the time counts as night hours in the logbook. Night changes only what you see; lessons are always flown by day.
+
 ## Training
 
 **Training** in the menu has 19 short levels in four tiers, each teaching one skill:
@@ -88,6 +90,7 @@ src/
   world/          Procedural world data (pure)
     world.ts        Heightfield, lake, landing areas, trees/rocks/buildings, queries
     rng.ts          Seeded PRNG and value noise (the world is identical every load)
+    nightLights.ts  Where the night lights go: runway, lake helipad, house windows, hill
   game/           Game rules (pure, testable headless)
     session.ts      FlightSession: one attempt, phases, collisions, touchdown, ground slide
     landing.ts      Ground contact, obstacle strikes, touchdown damage evaluation
@@ -100,6 +103,7 @@ src/
     game.ts         State machine, main loop, wiring (the only module that touches everything)
   input/          InputManager (single source of ControlInputs), keyboard, touch
   render/         Three.js scene, cockpit and helicopter model, terrain/tree meshes
+                  night.ts: moonlit sky and glowing lights; heliLights.ts: position lights, beacon, landing light
   hud/            HTML/CSS HUD overlay
   ui/             Menu, tutorial, pause and results screens
   audio/          Procedural WebAudio (rotor, horns, impacts)
