@@ -20,7 +20,7 @@ export interface LandingArea {
   deckHeight?: number;
 }
 
-export type ObstacleKind = 'tree' | 'rock' | 'building' | 'tower';
+export type ObstacleKind = 'tree' | 'rock' | 'building' | 'tower' | 'tank';
 
 export interface Obstacle {
   kind: ObstacleKind;
@@ -34,6 +34,8 @@ export interface Obstacle {
   d?: number;
   rot?: number;
   variant?: number;
+  /** How a building is drawn; farm buildings leave it unset. */
+  style?: 'hangar' | 'office';
 }
 
 export interface World {
@@ -181,6 +183,7 @@ export function createWorld(): World {
   obstacles.push(...airportBuildings(areas.find((a) => a.id === 'runway')!, heightAt));
 
   // Spatial hash for collision queries.
+  const maxRadius = Math.max(12, ...obstacles.map((o) => o.radius));
   const BUCKET = 40;
   const buckets = new Map<number, Obstacle[]>();
   const key = (bx: number, bz: number) => (bx + 1000) * 4096 + (bz + 1000);
@@ -192,7 +195,7 @@ export function createWorld(): World {
   }
   const obstaclesNear = (x: number, z: number, radius: number): Obstacle[] => {
     const out: Obstacle[] = [];
-    const r = radius + 12; // max obstacle radius
+    const r = radius + maxRadius;
     for (let bx = Math.floor((x - r) / BUCKET); bx <= Math.floor((x + r) / BUCKET); bx++) {
       for (let bz = Math.floor((z - r) / BUCKET); bz <= Math.floor((z + r) / BUCKET); bz++) {
         const list = buckets.get(key(bx, bz));
@@ -212,10 +215,23 @@ function inClearZone(a: LandingArea, x: number, z: number): boolean {
   return Math.abs(lx) < a.halfWidth + 60 && Math.abs(lz) < a.halfLength + 250;
 }
 
-/** Control tower west of the runway, beside its midpoint. */
+/**
+ * The airport west of the runway: control tower beside the midpoint, a hangar facing the runway across its apron,
+ * an operations building north of the tower and two fuel tanks south of the hangar. All stand outside the runway's
+ * clear zone, on open ground where no tree grew.
+ */
 function airportBuildings(rwy: LandingArea, heightAt: (x: number, z: number) => number): Obstacle[] {
   const x = rwy.cx - rwy.halfWidth - 70, z = rwy.cz + 60;
-  return [{ kind: 'tower', x, z, radius: 5, base: heightAt(x, z), height: 24, w: 6, d: 6, rot: 0 }];
+  const building = (style: 'hangar' | 'office', bx: number, bz: number, w: number, d: number, height: number): Obstacle =>
+    ({ kind: 'building', style, x: bx, z: bz, radius: Math.hypot(w, d) / 2, base: heightAt(bx, bz), height, w, d, rot: 0 });
+  const tank = (tx: number, tz: number): Obstacle => ({ kind: 'tank', x: tx, z: tz, radius: 2.8, base: heightAt(tx, tz), height: 5 });
+  return [
+    { kind: 'tower', x, z, radius: 5, base: heightAt(x, z), height: 24, w: 6, d: 6, rot: 0 },
+    building('hangar', rwy.cx - 120, rwy.cz - 10, 20, 26, 11),
+    building('office', rwy.cx - 115, rwy.cz + 110, 10, 16, 6),
+    tank(rwy.cx - 118, rwy.cz - 92),
+    tank(rwy.cx - 118, rwy.cz - 100),
+  ];
 }
 
 /** Height field for the given landing areas, plus the queries that depend on it. */

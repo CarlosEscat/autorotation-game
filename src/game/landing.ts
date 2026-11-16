@@ -42,7 +42,7 @@ export interface StrikeResult {
   obstacle: Obstacle;
 }
 
-const OBSTACLE_NAMES: Record<Obstacle['kind'], string> = { tree: 'a tree', rock: 'a boulder', building: 'a building', tower: 'the control tower' };
+const OBSTACLE_NAMES: Record<Obstacle['kind'], string> = { tree: 'a tree', rock: 'a boulder', building: 'a building', tower: 'the control tower', tank: 'a fuel tank' };
 const obstacleName = (o: Obstacle) => OBSTACLE_NAMES[o.kind];
 export const describeStrike = (s: StrikeResult) => `${s.part[0].toUpperCase()}${s.part.slice(1)} struck ${obstacleName(s.obstacle)}`;
 

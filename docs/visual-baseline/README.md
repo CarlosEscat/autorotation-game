@@ -120,3 +120,40 @@ simulation's vertices and diagonals, now indexed and smooth-shaded. Checked in t
 Ground-map bake times, warm: 128² ≈ 6–24 ms (24 ms cold), 512² ≈ 66 ms, 1024² ≈ 119 ms; with the CPU slowed 4×: 512² 181 ms,
 1024² 607 ms (in slices, so it never blocks a frame for more than about 6 ms). Production bundle: 785 kB JS,
 217.9 kB gzip (+2.4 kB gzip).
+
+## Stage 3 — airport and structures (`stage3/`)
+
+Decision D2: new airport buildings are solid. `world.ts` gains a hangar (20 × 26 × 11 m), an operations building and
+two fuel tanks west of the runway, on open ground no tree or rock was on, outside the runway clear zone and approaches
+(new `tests/airport.test.ts`). The collision lookup now uses the largest obstacle radius instead of a fixed 12 m
+(identical results for every existing obstacle). Crashes into a tank read "struck a fuel tank".
+
+- **Buildings** (`src/render/buildingsMesh.ts`): curved-roof hangar with ribbed doors, flat-roofed operations building,
+  domed fuel tanks, a rebuilt tower (round shaft, faceted outward-leaning glass cab, overhanging roof), and gabled
+  farm barn and house with eaves, doors, trim and chimney. All buildings are merged per material (~12 draws in all),
+  with walls sunk 1.5 m into the ground and soft occlusion towards their foot.
+- **Hard standing** (`src/render/airportLayout.ts`), painted into the ground map: gravel runway shoulders, asphalt
+  overruns, a concrete apron from the hangar doors to the runway, a path past the tower to the operations building,
+  and slabs under every building.
+- **Runway**: a small painted asphalt texture (64 × 1024): grain, darker centre strip, weathered edges, light tyre marks
+  in both touchdown zones.
+- **Helipad**: rounded deck, smoother legs with cross-braces, and a safety net sloping out below the deck edge.
+- **Markers**: rounded corner cones, a striped windsock with crisp bands.
+- **Night fix**: ground-level glows (runway edges, pad edges) are drawn 2 m nearer the eye, so the ground no longer cuts
+  them into half-domes.
+- Close-ups added: `11-hangar.png`, `12-tower.png`, `13-helipad.png`, `14-barn.png`.
+
+In flight (same method; both helicopters, day and night compiled first so the program count is complete):
+
+| | Stage 2 | Stage 3 |
+| --- | ---: | ---: |
+| FPS / worst frame | 60 / 17.7 ms | 60 / 18.7 ms |
+| `renderer.render` CPU, median / p95 | 2.3 / 2.9 ms | 2.5 / 3.1 ms |
+| Draw calls | 118 | 127 |
+| Triangles | 123 k | 128 k |
+| Textures | 7 | 8 (runway surface, 256 kB) |
+| Programs, everything compiled | 37 | 41 |
+
+The program count is over the 35 set in the plan, and was already at 37 after stage 2 once both helicopters and night
+were compiled. Stage 5 (shared materials) is where to bring it back down. Production bundle: 793 kB JS, 220.8 kB gzip
+(+2.9 kB gzip).

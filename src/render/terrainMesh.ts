@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { LAKE, LandingArea, World } from '../world/world';
 import { fbm, mulberry32, valueNoise } from '../world/rng';
+import { PavedPatch, pavedPatches } from './airportLayout';
 
 /**
  * The ground: a smooth-shaded mesh on exactly the collision surface, painted with a ground map baked once at
@@ -14,6 +15,11 @@ const GRASS_A = C(0x4f9450), GRASS_B = C(0x8cb85a);
 const LOWLAND = C(0xc2bd6a), HIGHLAND = C(0x3f6b5e), DISTANT = C(0x7d8a68);
 const ROCK = C(0x9b9679), SAND = C(0xcdb27c), WET_SAND = C(0xb09c74), LAKE_BED = C(0x6c7656);
 const MEADOW_DRY = C(0xa7b45e), MEADOW_LUSH = C(0x3f8446);
+const PAVING: Record<PavedPatch['surface'], [THREE.Color, THREE.Color]> = {
+  asphalt: [C(0x55544f), C(0x63615b)],
+  concrete: [C(0x9a978d), C(0xaaa69b)],
+  gravel: [C(0x8b8574), C(0x9d9682)],
+};
 const SURFACE: Record<LandingArea['surface'], [THREE.Color, THREE.Color]> = {
   field: [C(0x76aa4e), C(0x8cbb5e)], // mow stripes
   strip: [C(0xa1875f), C(0xb39a72)],
@@ -113,6 +119,7 @@ function* bakeSteps(world: World, size: number, data: Uint8Array): Generator<voi
   yield;
   const areas = world.areas.filter((a) => a.deckHeight === undefined).map((a) => ({ a, reach: Math.hypot(a.halfWidth, a.halfLength) + 8 }));
   const lakeR = LAKE.r * 1.3, water = world.waterLevel;
+  const paved = pavedPatches(world).map((p) => ({ p, reach: Math.hypot(p.hw, p.hl) + 3, cos: Math.cos(p.rot), sin: Math.sin(p.rot) }));
   const grass = new THREE.Color(), c = new THREE.Color(), tmp = new THREE.Color();
 
   for (let j = 0; j < size; j++) {
@@ -147,6 +154,19 @@ function* bakeSteps(world: World, size: number, data: Uint8Array): Generator<voi
           ? THREE.MathUtils.smoothstep(Math.sin((lx * Math.PI) / 20), -0.25, 0.25) // mow stripes, 20 m wide
           : THREE.MathUtils.smoothstep(valueNoise(x / 30, z / 30, 13), 0.2, 0.8);
         tmp.copy(c0).lerp(c1, t);
+        c.lerp(tmp, w);
+      }
+
+      // Airport hard standing, edges softened over about a metre and a half.
+      for (const { p, reach, cos, sin } of paved) {
+        if (Math.abs(x - p.cx) > reach || Math.abs(z - p.cz) > reach) continue;
+        const dx = x - p.cx, dz = z - p.cz, lx = dx * cos - dz * sin, lz = dx * sin + dz * cos;
+        const ox = Math.abs(lx) - p.hw, oz = Math.abs(lz) - p.hl;
+        const d = ox > 0 || oz > 0 ? Math.hypot(Math.max(0, ox), Math.max(0, oz)) : Math.max(ox, oz);
+        const w = 1 - THREE.MathUtils.smoothstep(d, -0.6, 0.9);
+        if (w <= 0) continue;
+        const [p0, p1] = PAVING[p.surface];
+        tmp.copy(p0).lerp(p1, valueNoise(x / 6, z / 6, 29));
         c.lerp(tmp, w);
       }
 

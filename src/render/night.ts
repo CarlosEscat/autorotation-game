@@ -88,11 +88,14 @@ function glowTexture(): THREE.Texture {
  * Glowing points that never light anything. Far lights keep a few pixels so a runway still reads from across the map;
  * near ones are capped so a light beside the skids does not fill the view.
  */
-function glowMaterial(vertexColors: boolean, size = 14, minPx = 8, maxPx = 30): THREE.PointsMaterial {
+function glowMaterial(vertexColors: boolean, size = 14, minPx = 8, maxPx = 30, nearer = 0): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ map: glowTexture(), size, sizeAttenuation: true, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   // three keys its program cache on the text of onBeforeCompile, which is the same for every size: name the limits.
-  m.customProgramCacheKey = () => `glow:${minPx}:${maxPx}`;
+  m.customProgramCacheKey = () => `glow:${minPx}:${maxPx}:${nearer}`;
   m.onBeforeCompile = (shader) => {
+    // `nearer` draws the glow as if it were that many metres closer to the eye, so ground-level lamps are not cut
+    // in half by the ground they stand on.
+    if (nearer > 0) shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>\nmvPosition.xyz += normalize(-mvPosition.xyz) * ${nearer.toFixed(1)};\ngl_Position = projectionMatrix * mvPosition;`);
     shader.vertexShader = shader.vertexShader.replace('#include <logdepthbuf_vertex>', `gl_PointSize = clamp(gl_PointSize, ${minPx.toFixed(1)}, ${maxPx.toFixed(1)});\n#include <logdepthbuf_vertex>`);
   };
   return m;
@@ -113,8 +116,8 @@ const pointsOf = <L extends Glow>(lights: L[], material: THREE.PointsMaterial, d
  */
 export function buildWorldLights(lights: NightLight[]): { group: THREE.Group; ends: Record<-1 | 1, THREE.Points> } {
   const group = new THREE.Group();
-  const steady = pointsOf(lights.filter((l) => l.kind !== 'runwayEnd'), glowMaterial(true), (l) => (l.kind === 'window' ? 0.6 : 1));
-  const end = (e: -1 | 1) => pointsOf(lights.filter((l) => l.kind === 'runwayEnd' && l.end === e), glowMaterial(false));
+  const steady = pointsOf(lights.filter((l) => l.kind !== 'runwayEnd'), glowMaterial(true, 14, 8, 30, 2), (l) => (l.kind === 'window' ? 0.6 : 1));
+  const end = (e: -1 | 1) => pointsOf(lights.filter((l) => l.kind === 'runwayEnd' && l.end === e), glowMaterial(false, 14, 8, 30, 2));
   const ends = { [-1]: end(-1), 1: end(1) } as Record<-1 | 1, THREE.Points>;
   for (const e of [-1, 1] as const) (ends[e].material as THREE.PointsMaterial).color.setHex(LIGHT.green);
   group.add(steady, ends[-1], ends[1]);

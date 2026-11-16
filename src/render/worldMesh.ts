@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { roundBox } from './modelKit';
 import { LandingArea, World } from '../world/world';
 import { mulberry32 } from '../world/rng';
 import { PALETTE, lambert } from './materials';
+import { buildBuildings } from './buildingsMesh';
 
 // --- Trees --------------------------------------------------------------------------------
 // Each tree is ONE merged geometry (trunk + foliage) with baked vertex colours, so a variant is a
@@ -29,13 +31,6 @@ function shaded(geo: THREE.BufferGeometry, dark: number, light: number): THREE.B
   return g;
 }
 
-/** `geo` with one flat colour baked into its vertices, so differently coloured parts can share a mesh. */
-function painted(geo: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
-  const c = new THREE.Color(color), n = geo.attributes.position.count;
-  const col = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b; }
-  return geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-}
 
 const TRUNK_DARK = 0x3d2c20, TRUNK_LIGHT = 0x6b4f37;
 const trunk = (h: number, r0: number, r1: number) =>
@@ -134,51 +129,60 @@ export function buildObstacles(world: World): THREE.Group {
   });
   group.add(rockMesh);
 
-  // All buildings are one mesh: wall and roof colours are baked into the vertices.
-  const houses: THREE.BufferGeometry[] = [];
-  for (const b of world.obstacles.filter((o) => o.kind === 'building')) {
-    const walls = new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!).translate(0, (b.height * 0.65) / 2, 0);
-    const roof = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
-    roof.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75).translate(0, b.height * 0.65 + (b.height * 0.35) / 2, 0);
-    for (const [geo, color] of [[walls, b.w! > 12 ? PALETTE.barnWall : PALETTE.houseWall], [roof, PALETTE.roof]] as const) {
-      houses.push(painted(geo, color).rotateY(b.rot ?? 0).translate(b.x, b.base, b.z));
-    }
-  }
-  if (houses.length) group.add(new THREE.Mesh(mergeGeometries(houses)!, lambert(0xffffff, { vertexColors: true })));
-  for (const t of world.obstacles.filter((o) => o.kind === 'tower')) group.add(buildTower(t.x, t.base, t.z, t.height));
+  group.add(buildBuildings(world));
   return group;
 }
 
-/** Airport control tower: concrete shaft, glazed cab, roof, antenna with a red light. */
-function buildTower(x: number, base: number, z: number, height: number): THREE.Group {
-  const g = new THREE.Group();
-  const mat = lambert;
-  const box = (w: number, h: number, d: number, y: number, color: number) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
-    m.position.y = y + h / 2;
-    g.add(m);
-    return m;
-  };
-  const cab = height - 7;
-  box(11, 4, 8, 0, PALETTE.towerOffice).position.x = 5; // ground-floor office
-  box(4, cab, 4, 0, PALETTE.towerShaft); // shaft
-  box(7.6, 0.8, 7.6, cab, PALETTE.towerTrim);
-  box(7, 3.6, 7, cab + 0.8, PALETTE.towerGlass); // glass
-  box(7.8, 0.8, 7.8, cab + 4.4, PALETTE.towerTrim); // roof
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 4), mat(PALETTE.mast));
-  mast.position.y = cab + 6.1;
-  const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
-  light.position.y = cab + 7.1;
-  light.name = 'towerLight';
-  g.add(mast, light);
-  g.position.set(x, base, z);
-  return g;
+/**
+ * The runway's asphalt as a small painted texture (across × along): fine grain, a darker oily strip down the middle,
+ * lighter weathered edges, and rubber deposits where wheels touch down past each aiming point.
+ */
+function runwaySurface(): THREE.CanvasTexture {
+  const W = 64, L = 1024, rnd = mulberry32(31);
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = L;
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#5a5954';
+  ctx.fillRect(0, 0, W, L);
+  const across = ctx.createLinearGradient(0, 0, W, 0);
+  across.addColorStop(0, 'rgba(150,146,136,0.35)');
+  across.addColorStop(0.12, 'rgba(150,146,136,0)');
+  across.addColorStop(0.38, 'rgba(30,30,28,0)');
+  across.addColorStop(0.5, 'rgba(30,30,28,0.35)');
+  across.addColorStop(0.62, 'rgba(30,30,28,0)');
+  across.addColorStop(0.88, 'rgba(150,146,136,0)');
+  across.addColorStop(1, 'rgba(150,146,136,0.35)');
+  ctx.fillStyle = across;
+  ctx.fillRect(0, 0, W, L);
+  // Tyre rubber: dark streaks along the runway in both touchdown zones, thickest just past the aiming points.
+  for (const end of [0, 1]) {
+    for (let k = 0; k < 90; k++) {
+      const t = Math.pow(rnd(), 1.6);
+      const along = 0.27 + t * 0.2, y = (end ? 1 - along : along) * L;
+      const x = W / 2 + (rnd() - 0.5) * W * 0.45 + (rnd() < 0.5 ? -1 : 1) * W * 0.06;
+      ctx.fillStyle = `rgba(25,25,24,${0.04 + 0.08 * (1 - t)})`;
+      ctx.fillRect(x, y, 1 + rnd(), (8 + rnd() * 24) * (end ? -1 : 1));
+    }
+  }
+  const img = ctx.getImageData(0, 0, W, L);
+  for (let k = 0; k < img.data.length; k += 4) {
+    const n = (rnd() - 0.5) * 14;
+    img.data[k] += n;
+    img.data[k + 1] += n;
+    img.data[k + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
 }
 
 /** Asphalt and white markings over each paved area: edges, centreline, thresholds, aiming points. */
 export function buildRunways(world: World): THREE.Group {
   const group = new THREE.Group();
-  const asphalt = lambert(PALETTE.asphalt, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const asphalt = new THREE.MeshLambertMaterial({ map: runwaySurface(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const paint = lambert(PALETTE.runwayPaint, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
@@ -206,14 +210,33 @@ export function buildRunways(world: World): THREE.Group {
 /** Concrete deck on four legs standing in the lake, with a yellow edge band, touchdown circle and H. */
 function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   const g = new THREE.Group();
-  const mat = lambert;
   const hw = a.halfWidth, hl = a.halfLength;
   // Light deck and bold, wide markings so the pad still reads at range; size and collision are unchanged.
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(PALETTE.deck));
+  const deck = lambert(PALETTE.deck, { flatShading: false });
+  const slab = roundBox(hw * 2, 1, hl * 2, 0.2, deck);
   slab.position.y = -0.5;
   g.add(slab);
-  const legs = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => new THREE.CylinderGeometry(0.7, 0.7, 16, 6).translate(sx * (hw - 2), -9, sz * (hl - 2)));
-  g.add(new THREE.Mesh(mergeGeometries(legs)!, mat(PALETTE.deckLegs)));
+  // Legs with cross-braces between them, and a safety net sloping out below the deck edge.
+  const steel = lambert(PALETTE.deckLegs, { flatShading: false });
+  const legs: THREE.BufferGeometry[] = [];
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (const [sx, sz] of corners) legs.push(new THREE.CylinderGeometry(0.7, 0.75, 16, 14).translate(sx * (hw - 2), -9, sz * (hl - 2)));
+  for (let k = 0; k < 4; k++) {
+    const [ax, az] = corners[k], [bx, bz] = corners[(k + 1) % 4];
+    const a = new THREE.Vector3(ax * (hw - 2), -2.5, az * (hl - 2)), b = new THREE.Vector3(bx * (hw - 2), -6.5, bz * (hl - 2));
+    const brace = new THREE.CylinderGeometry(0.18, 0.18, a.distanceTo(b), 8);
+    brace.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()));
+    legs.push(brace.translate((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2));
+  }
+  g.add(new THREE.Mesh(mergeGeometries(legs.map((l) => l.toNonIndexed()))!, steel));
+  const net: THREE.BufferGeometry[] = [];
+  for (const side of [0, 1, 2, 3]) {
+    const len = side % 2 ? hl * 2 : hw * 2;
+    const strip = new THREE.PlaneGeometry(len, 1.6).rotateX(-0.3).translate(0, -0.55, 0.75);
+    strip.rotateY((side * Math.PI) / 2).translate(side === 1 ? hw : side === 3 ? -hw : 0, 0, side === 0 ? hl : side === 2 ? -hl : 0);
+    net.push(strip);
+  }
+  g.add(new THREE.Mesh(mergeGeometries(net)!, lambert(0x3a3d3f, { flatShading: false, side: THREE.DoubleSide, transparent: true, opacity: 0.75 })));
   // Markings are merged per colour: two draws for the whole deck.
   const yellow = lambert(PALETTE.padYellow, { flatShading: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const marks = new Map<THREE.Material, THREE.BufferGeometry[]>([[yellow, []], [paint, []]]);
@@ -234,8 +257,9 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
 /** Corner markers and a windsock for each landing area. */
 export function buildAreaMarkers(world: World, windFromDeg: number, windKt: number): THREE.Group {
   const group = new THREE.Group();
-  const markerMat = lambert(PALETTE.marker);
-  const sockMat = lambert(PALETTE.windsock, { side: THREE.DoubleSide });
+  const markerMat = lambert(PALETTE.marker, { flatShading: false });
+  // Striped sock: orange and white bands along its length, baked into the vertices.
+  const sockMat = lambert(0xffffff, { side: THREE.DoubleSide, vertexColors: true, flatShading: false });
   const poleMat = lambert(PALETTE.mast, { flatShading: false });
   // One geometry each for all the cones, poles and socks of the map.
   const cones: THREE.BufferGeometry[] = [], poles: THREE.BufferGeometry[] = [], socks: THREE.BufferGeometry[] = [];
@@ -245,12 +269,22 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
     const toWorld = (lx: number, lz: number) => ({ x: a.cx + lx * c + lz * s, z: a.cz - lx * s + lz * c });
     for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       const p = toWorld(sx * a.halfWidth, sz * a.halfLength);
-      cones.push(new THREE.ConeGeometry(0.8, 1.2, 4).translate(p.x, world.heightAt(p.x, p.z) + 0.6, p.z));
+      cones.push(new THREE.ConeGeometry(0.7, 1.2, 14).translate(p.x, world.heightAt(p.x, p.z) + 0.6, p.z));
     }
     const p = a.deckHeight === undefined ? toWorld(a.halfWidth + 6, -a.halfLength * 0.6) : toWorld(a.halfWidth - 1, -a.halfLength + 1);
     const ground = world.heightAt(p.x, p.z);
-    poles.push(new THREE.CylinderGeometry(0.08, 0.08, 6, 4).translate(p.x, ground + 3, p.z));
-    const sockGeo = new THREE.ConeGeometry(0.45, 2.6, 6, 1, true).rotateX(Math.PI / 2).translate(0, 0, 1.3);
+    poles.push(new THREE.CylinderGeometry(0.07, 0.09, 6.4, 8).translate(p.x, ground + 3, p.z));
+    // Five bands, each its own short tube so the colours stay crisp, wide end at the pole (z = 0).
+    const bands: THREE.BufferGeometry[] = [], orange = new THREE.Color(PALETTE.windsock), white = new THREE.Color(0xf4f1ea);
+    for (let k = 0; k < 5; k++) {
+      const r = (t: number) => 0.45 - 0.25 * t;
+      const band = new THREE.CylinderGeometry(r((k + 1) / 5), r(k / 5), 2.6 / 5, 16, 1, true).rotateX(Math.PI / 2).translate(0, 0, (2.6 * (k + 0.5)) / 5);
+      const col = new Float32Array(band.attributes.position.count * 3);
+      for (let i = 0; i < col.length; i += 3) (k % 2 ? white : orange).toArray(col, i);
+      band.setAttribute('color', new THREE.BufferAttribute(col, 3));
+      bands.push(band);
+    }
+    const sockGeo = mergeGeometries(bands)!;
     // The sock (wide end at the pole, along +Z) streams downwind: heading = from + 180°.
     const to = ((windFromDeg + 180) * Math.PI) / 180;
     euler.set(windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15), Math.atan2(Math.sin(to), -Math.cos(to)), 0, 'YXZ');
