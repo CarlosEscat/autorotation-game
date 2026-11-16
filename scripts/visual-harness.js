@@ -40,6 +40,8 @@ async () => {
       farm: { place: [60, 400, 900], cam: { pos: [520, 40, 230], look: [400, -5, 420] } },
       vista: { place: [60, 400, 900], cam: { pos: [-200, 220, 1100], look: [100, 40, -600] } },
       cockpit: { place: [-40, 140, 350, 0.3, -0.12], cam: null, cockpit: true },
+      forest: { place: [60, 400, 900], cam: { pos: [140, 'ground+14', -560], look: [240, 'ground+8', -650] } },
+      low: { place: [-470, 'ground+4', 300, 2.4, -0.04], cam: null },
     };
     window.__view = async (name, night = false) => {
       const R = g.renderer, v = __views[name];
@@ -52,7 +54,11 @@ async () => {
       }
       R.setNight(night);
       R.setMode(v.cockpit ? 'cockpit' : 'chase');
+      // 'ground+N' places a point N metres above the terrain under it.
+      const lift = (x, y, z) => (typeof y === 'string' && y.startsWith('ground+') ? g.world.heightAt(x, z) + Number(y.slice(7)) : y);
+      if (v.cam) v.cam = { pos: [v.cam.pos[0], lift(...v.cam.pos), v.cam.pos[2]], look: [v.cam.look[0], lift(...v.cam.look), v.cam.look[2]] };
       const p = [...v.place];
+      p[1] = lift(p[0], p[1], p[2]);
       // Shots on the ground: y = 'ground' sits the gear on the terrain.
       if (p[1] === 'ground') p[1] = g.world.heightAt(p[0], p[2]) + g.session.state.aircraft.skidHeight;
       __place(...p);

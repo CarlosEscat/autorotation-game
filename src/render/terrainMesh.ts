@@ -277,11 +277,29 @@ function groundMaterial(map: THREE.Texture, worldSize: number): THREE.MeshLamber
   return mat;
 }
 
+const ground: { current: THREE.DataTexture | null; worldSize: number } = { current: null, worldSize: 0 };
+
+/**
+ * The ground map's colour at a point (linear), as drawn right now; false before the terrain is built.
+ * Used to tint plants so they match the ground they grow from.
+ */
+export function groundColourAt(x: number, z: number, out: THREE.Color): boolean {
+  const tex = ground.current;
+  if (!tex) return false;
+  const { data, width: size } = tex.image as { data: Uint8Array; width: number };
+  const i = Math.min(size - 1, Math.max(0, Math.floor(((x / ground.worldSize) + 0.5) * size)));
+  const j = Math.min(size - 1, Math.max(0, Math.floor(((z / ground.worldSize) + 0.5) * size)));
+  const k = (j * size + i) * 4;
+  out.setRGB(data[k] / 255, data[k + 1] / 255, data[k + 2] / 255, THREE.SRGBColorSpace);
+  return true;
+}
+
 /**
  * The playable terrain: the same vertices and diagonals as `World.heightAt`, so the drawn ground is exactly the
  * collision surface, but indexed and smooth-shaded, and coloured by the ground map instead of per triangle.
  */
 export function buildTerrain(world: World): THREE.Mesh {
+  ground.worldSize = world.size;
   const n = world.cells + 1, cell = world.size / world.cells, half = world.size / 2;
   const pos = new Float32Array(n * n * 3), uv = new Float32Array(n * n * 2);
   for (let j = 0; j < n; j++) {
@@ -306,9 +324,10 @@ export function buildTerrain(world: World): THREE.Mesh {
   geo.computeVertexNormals();
   // A quick coarse map first; the full one is baked in the background and swapped in, usually while the menu is up.
   const material = groundMaterial(bakeGroundMap(world, 128), world.size);
+  ground.current = material.map as THREE.DataTexture;
   bakeGroundMapInBackground(world, groundMapSize(), (tex) => {
     material.map?.dispose();
-    material.map = tex;
+    material.map = ground.current = tex;
   });
   return new THREE.Mesh(geo, material);
 }

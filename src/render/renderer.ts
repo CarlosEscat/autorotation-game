@@ -11,7 +11,9 @@ import { StatsOverlay } from './statsOverlay';
 import { MOON_DIR, NIGHT, buildNightSky, buildWorldLights } from './night';
 import { LIGHT, nightLights } from '../world/nightLights';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon } from './worldMesh';
-import { buildDistantMountains, buildTerrain, buildWater } from './terrainMesh';
+import { buildDistantMountains, buildTerrain, buildWater, groundColourAt } from './terrainMesh';
+import { GrassField, windTime } from './vegetation';
+import { pavedPatches } from './airportLayout';
 
 export type CameraMode = 'cockpit' | 'chase';
 
@@ -91,6 +93,7 @@ export class GameRenderer {
   private tailAngle = 0;
   private sweepAngle = 0;
   private stats: StatsOverlay | null;
+  private grass: GrassField;
   mode: CameraMode = 'chase';
   /** Real shadow map under the helicopter; when off, a blob shadow is drawn instead. */
   shadows = true;
@@ -146,6 +149,14 @@ export class GameRenderer {
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon, this.spray.points);
+    // Grass grows on open ground only: not on the airport's hard standing, nor round buildings, tanks and boulders.
+    const paved = pavedPatches(world);
+    const onPaving = (x: number, z: number) => paved.some((p) => {
+      const dx = x - p.cx, dz = z - p.cz, c = Math.cos(p.rot), sn = Math.sin(p.rot);
+      return Math.abs(dx * c - dz * sn) < p.hw + 1 && Math.abs(dx * sn + dz * c) < p.hl + 1;
+    });
+    this.grass = new GrassField(world, groundColourAt, (x, z) => onPaving(x, z) || world.obstaclesNear(x, z, 0.8).some((o) => o.kind !== 'tree'));
+    this.scene.add(this.grass.mesh);
 
     this.heli = this.modelFor(AIRCRAFT);
     this.heli.eye.add(this.camera);
@@ -308,10 +319,15 @@ export class GameRenderer {
   }
 
   /**
-   * Trades looks for speed, one step per call: first the real shadow gives way to the blob shadow,
-   * then the picture is drawn at the screen's base resolution. Returns false once nothing is left to drop.
+   * Trades looks for speed, one step per call: first the grass round the helicopter goes, then the real shadow
+   * gives way to the blob shadow, then the picture is drawn at the screen's base resolution. Returns false once nothing is left to drop.
    */
   lowerQuality(): boolean {
+    // Grass goes first: it is the least missed.
+    if (this.grass.enabled) {
+      this.grass.enabled = false;
+      return true;
+    }
     // At night the shadow map is already off: dropping it would cost the day its shadow and save nothing now.
     if (this.shadows && !this.night) this.shadows = false;
     else if (this.maxPixelRatio > 1) {
@@ -386,6 +402,8 @@ export class GameRenderer {
     this.sun.target.position.set(s.pos.x, s.pos.y, s.pos.z);
     this.sun.position.copy(this.lightDir).multiplyScalar(120).add(this.sun.target.position);
     const gy = this.world.heightAt(s.pos.x, s.pos.z);
+    windTime.value = s.time;
+    this.grass.update(s.pos.x, s.pos.z, s.pos.y - gy);
     this.shadow.position.set(s.pos.x, gy + 0.15, s.pos.z);
     this.shadow.visible = !realShadow && !cockpit && s.pos.y - gy < 60;
 

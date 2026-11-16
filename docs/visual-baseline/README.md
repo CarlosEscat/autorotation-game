@@ -157,3 +157,43 @@ In flight (same method; both helicopters, day and night compiled first so the pr
 The program count is over the 35 set in the plan, and was already at 37 after stage 2 once both helicopters and night
 were compiled. Stage 5 (shared materials) is where to bring it back down. Production bundle: 793 kB JS, 220.8 kB gzip
 (+2.9 kB gzip).
+
+## Stage 4 — vegetation (`stage4/`)
+
+New `src/render/vegetation.ts`; collision unchanged (every tree keeps its exact height and place).
+
+- **Trees**: pines of stacked drooping tiers and broadleaf trees with a branching trunk and a crown of lumpy lobes.
+  Normals are bent away from the crown centre, so foliage shades as one soft mass instead of facets. Three levels of
+  detail per 350 m chunk: detailed up to 300 m (pine ~180 triangles, broadleaf ~270), simpler up to 760 m, silhouettes
+  beyond. Per-tree brightness and warm/cool tint.
+- **Undergrowth**: a bush beside about a third of the trees, kept off landing areas, water, steep slopes and the
+  airport; drawn only up close.
+- **Grass**: up to ~2 500 tufts in a 34 m circle round the helicopter below 45 m above the ground, on a world-fixed
+  grid (no swimming), each tinted from the ground map under it; not on paving, strips, water or round buildings.
+  Rebuilt every 5 m of travel. It is the first thing `lowerQuality` drops.
+- **Wind**: one shared plant material sways trees, bushes and grass in the vertex shader, phased by position and driven
+  by simulation time (a paused game holds still).
+- New harness views: `15-forest.png` (forest edge from 14 m) and `16-low.png` (hover 4 m over the meadow).
+
+| Shot | Stage 3 | Stage 4 |
+| --- | ---: | ---: |
+| heli (draws / triangles) | 100 / 132 k | 102 / 171 k (grass shown) |
+| chase | 94 / 128 k | 95 / 150 k |
+| airport | 68 / 112 k | 71 / 187 k (grass shown) |
+| vista | — | 142 / 188 k |
+| forest | — | 42 / 145 k |
+
+In flight (same method; everything compiled first):
+
+| | Stage 3 | Stage 4, cruise 1000 ft | Stage 4, low pass 8 m over the meadow |
+| --- | ---: | ---: | ---: |
+| FPS / worst frame | 60 / 18.7 ms | 60 / 17.7 ms | 60 / 17.7 ms |
+| `renderer.render` CPU, median / p95 | 2.5 / 3.1 ms | 2.9 / 3.5 ms | 2.6 / 6.0 ms (grass rebuilds) |
+| Draw calls | 127 | 127 | 26 |
+| Triangles | 128 k | 145 k | 132 k |
+| Programs, everything compiled | 41 | 47 | 47 |
+
+Every shot stays within the ~190 k triangle budget after trimming (the first version reached 213 k in the forest and
+211 k in the vista). Programs are further over the plan's 35: the three plant materials (tree, bush, grass sway) each
+compile their own variants. Stage 5 should fold them, the ground and the buildings into fewer shared materials.
+Production bundle: 800 kB JS, 223.1 kB gzip (+2.3 kB gzip).
