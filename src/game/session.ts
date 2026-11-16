@@ -41,6 +41,8 @@ export interface FlightConfig {
   fire?: FireSpec;
   /** Helicopter type to fly; the light trainer by default. */
   aircraft?: AircraftId;
+  /** Moonlit night: changes what is seen, never how it flies. */
+  night?: boolean;
 }
 
 export interface StartOverride {

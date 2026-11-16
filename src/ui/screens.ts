@@ -15,6 +15,7 @@ export interface Settings {
   airspeedKt: number;
   wind: 'calm' | 'light' | 'strong';
   hints: boolean;
+  time: 'day' | 'night';
 }
 
 export const ALTITUDES = [
@@ -33,8 +34,9 @@ export const WIND_PRESETS: Record<Settings['wind'], { kt: number; from: number; 
   strong: { kt: 15, from: 330, label: '15 kt' },
 };
 const DIFFICULTIES: Record<Difficulty, string> = { easy: 'Arcade', normal: 'Realistic' };
+export const TIMES: Record<Settings['time'], string> = { day: 'Day', night: 'Night' };
 
-export const DEFAULT_SETTINGS: Settings = { aircraft: 'light', difficulty: 'easy', altitudeFt: 1500, airspeedKt: 90, wind: 'strong', hints: true };
+export const DEFAULT_SETTINGS: Settings = { aircraft: 'light', difficulty: 'easy', altitudeFt: 1500, airspeedKt: 90, wind: 'strong', hints: true, time: 'day' };
 
 const nearest = (opts: number[], v: number) => opts.reduce((a, b) => (Math.abs(b - v) < Math.abs(a - v) ? b : a));
 
@@ -48,20 +50,21 @@ export function normalizeSettings(s: Partial<Settings> = {}): Settings {
     airspeedKt: nearest(AIRSPEEDS, Number(s.airspeedKt) || d.airspeedKt),
     wind: s.wind && s.wind in WIND_PRESETS ? s.wind : d.wind,
     hints: s.hints ?? d.hints,
+    time: s.time === 'night' ? 'night' : 'day',
   };
 }
 
 /** Free flight: the engine never fails. */
 export function configFromSettings(s: Settings): FlightConfig {
   const w = WIND_PRESETS[s.wind];
-  return { aircraft: s.aircraft, altitudeFt: s.altitudeFt, airspeedKt: startAirspeed(s), windKt: w.kt, windFromDeg: w.from, failureDelay: 1e9, difficulty: s.difficulty };
+  return { aircraft: s.aircraft, altitudeFt: s.altitudeFt, airspeedKt: startAirspeed(s), windKt: w.kt, windFromDeg: w.from, failureDelay: 1e9, difficulty: s.difficulty, night: s.time === 'night' };
 }
 
 const POINTS = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const windText = (w: { kt: number; from: number }) => (w.kt === 0 ? 'Calm' : `${w.kt} kt from ${POINTS[Math.round(w.from / 22.5) % 16]}`);
 
 /** "Trainer · 1500 ft · 90 kt · 15 kt from NNW · Arcade" */
-export const flightSummary = (s: Settings) => `${AIRCRAFT_TYPES[s.aircraft].name} · ${s.altitudeFt} ft · ${startAirspeed(s)} kt · ${windText(WIND_PRESETS[s.wind])} · ${DIFFICULTIES[s.difficulty]}`;
+export const flightSummary = (s: Settings) => `${AIRCRAFT_TYPES[s.aircraft].name} · ${s.altitudeFt} ft · ${startAirspeed(s)} kt · ${windText(WIND_PRESETS[s.wind])} · ${DIFFICULTIES[s.difficulty]}${s.time === 'night' ? ' · Night' : ''}`;
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -254,6 +257,7 @@ export class Screens {
         ${field('ias', 'Airspeed', AIRSPEEDS.map((v) => seg('ias', v, `<span class="legend ias-label">${v} kt</span>`)).join(''))}
         ${field('wind', 'Wind', Object.entries(WIND_PRESETS).map(([k, w]) => seg('wind', k, `<span class="legend">${w.label}</span>`)).join(''), compass)}
         ${field('diff', 'Difficulty', Object.entries(DIFFICULTIES).map(([k, l]) => seg('diff', k, `<span class="legend">${l}</span>`)).join(''))}
+        ${field('time', 'Time of day', Object.entries(TIMES).map(([k, l]) => seg('time', k, `<span class="legend">${l}</span>`)).join(''))}
       </div>
       <footer class="ff-foot"><div class="ff-summary" aria-live="polite"></div>
         <button class="key go" data-a="go"><span class="lamp"></span>${ICON.play}<span class="legend">Start flight</span></button></footer>
@@ -268,13 +272,14 @@ export class Screens {
     else if (f === 'ias') s.airspeedKt = Number(v);
     else if (f === 'wind') s.wind = v as Settings['wind'];
     else if (f === 'diff') s.difficulty = v as Difficulty;
+    else if (f === 'time') s.time = v as Settings['time'];
     this.syncFreeFlight();
   }
 
   /** Light the keys that match the current settings, and update the summary and compass. */
   private syncFreeFlight() {
     const s = this.settings;
-    const cur: Record<string, string> = { heli: s.aircraft, alt: String(s.altitudeFt), ias: String(s.airspeedKt), wind: s.wind, diff: s.difficulty };
+    const cur: Record<string, string> = { heli: s.aircraft, alt: String(s.altitudeFt), ias: String(s.airspeedKt), wind: s.wind, diff: s.difficulty, time: s.time };
     for (const k of this.free.querySelectorAll<HTMLElement>('[data-a="pick"]')) k.setAttribute('aria-pressed', String(cur[k.dataset.f!] === k.dataset.v));
     // The airspeed keys keep their place but show the speeds of the chosen helicopter.
     this.free.querySelectorAll<HTMLElement>('.ias-label').forEach((el, i) => (el.textContent = `${startAirspeed({ ...s, airspeedKt: AIRSPEEDS[i] })} kt`));
