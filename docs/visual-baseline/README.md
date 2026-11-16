@@ -65,3 +65,28 @@ Shared palette and materials (`src/render/materials.ts`), neutral tone mapping, 
 Shots 03 and 09 retaken: the look is unchanged apart from slightly richer greens and whiter runway paint (tone mapping
 compresses bright highlights). Shared materials reduced shader programs in the airport night shot from 29 to 27.
 
+## Stage 1 — helicopters (`stage1/`)
+
+Smooth, rounded light and heavy airframes (`src/render/modelKit.ts`), glossy paint with a sky environment map, baked
+vertical occlusion, merged per material. Shots 01, 02, 03, 08 and a new `10-heli-night.png`. The parked shots now stop
+the rotor (`parked` in the harness) so the blades show; the `before/` shots had a turning rotor, drawn as a faint disc.
+
+| Model | Exterior meshes (draws, incl. tail rotor) | Exterior triangles |
+| --- | ---: | ---: |
+| Light, before | 28 | 620 |
+| Light, stage 1 | 5 | 6.3 k |
+| Heavy, stage 1 | 8 | 8.1 k |
+
+In flight (chase camera, 1000 ft, day, real-time shadow on), same machine and method as the baseline:
+
+| | Before | Stage 1, light | Stage 1, heavy |
+| --- | ---: | ---: | ---: |
+| FPS / worst frame | 60 / 17.8 ms | 60 / 17.7 ms | 60 / 17.7 ms |
+| `renderer.render` CPU, median / p95 | 2.2 / 2.9 ms | 2.1 / 2.5 ms | 2.1 / 2.5 ms |
+| Draw calls | 163 | 117 | 112 |
+| Triangles | 81 k | 92 k | 95 k |
+| Programs (day + night, both types compiled) | 29 | 34 | 34 |
+| Textures | 3 | 5 (adds the environment map) | 5 |
+| JS heap | 29 MB | 32 MB | 32 MB |
+
+Production bundle: 779 kB JS, 215.5 kB gzip (+4.5 kB gzip).

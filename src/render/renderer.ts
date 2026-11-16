@@ -15,12 +15,37 @@ import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, bui
 export type CameraMode = 'cockpit' | 'chase';
 
 const HAZE = 0xe6dcc6;
-const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3 };
+const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3, environment: 0.9 };
 /** Exposure under tone mapping, tuned so the scene is as bright as it was without it. */
 const TONE_EXPOSURE = 1.0;
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
 const ENDS = [-1, 1] as const;
 const SWEEP_RATE = 12; // rad/s of the cockpit rotor sweep at 100 % NR
+
+/**
+ * A tiny pre-filtered environment map of the day sky (blue above, warm haze at the horizon, green-brown ground),
+ * built once on the GPU: no image is downloaded.
+ */
+function buildSkyEnvironment(renderer: THREE.WebGLRenderer): THREE.Texture {
+  const geo = new THREE.SphereGeometry(10, 32, 16);
+  const p = geo.attributes.position, colors: number[] = [];
+  const top = new THREE.Color(0x5b8fd0), horizon = new THREE.Color(HAZE), ground = new THREE.Color(0x4a5236), sun = new THREE.Color(0xfff0d0), c = new THREE.Color(), v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    const y = p.getY(i) / 10;
+    if (y >= 0) c.copy(horizon).lerp(top, Math.pow(y, 0.6));
+    else c.copy(horizon).lerp(ground, Math.min(1, -y * 4));
+    c.lerp(sun, 0.8 * Math.pow(Math.max(0, v.fromBufferAttribute(p, i).normalize().dot(SUN_DIR)), 24));
+    colors.push(c.r, c.g, c.b);
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const envScene = new THREE.Scene();
+  envScene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const tex = pmrem.fromScene(envScene, 0.02).texture;
+  pmrem.dispose();
+  geo.dispose();
+  return tex;
+}
 
 /** Owns the Three.js scene. Reads simulation state; never changes it. */
 export class GameRenderer {
@@ -82,6 +107,9 @@ export class GameRenderer {
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = TONE_EXPOSURE;
     this.stats = StatsOverlay.fromUrl(container);
+    // Only the helicopter's paint reads the environment: soft sky reflections on a glossy body.
+    this.scene.environment = buildSkyEnvironment(this.renderer);
+    this.scene.environmentIntensity = DAY.environment;
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
     // Low, warm late-afternoon sun with a soft sky fill and warm haze.
@@ -200,6 +228,7 @@ export class GameRenderer {
     this.hemi.color.setHex(on ? NIGHT.hemiSky : DAY.hemiSky);
     this.hemi.groundColor.setHex(on ? NIGHT.hemiGround : DAY.hemiGround);
     this.hemi.intensity = on ? NIGHT.hemi : DAY.hemi;
+    this.scene.environmentIntensity = on ? NIGHT.environment : DAY.environment;
     this.sun.color.setHex(on ? NIGHT.moon : DAY.sun);
     this.sun.intensity = on ? NIGHT.moonPower : DAY.sunPower;
     this.sun.castShadow = !on;

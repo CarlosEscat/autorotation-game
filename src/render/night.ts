@@ -18,6 +18,8 @@ export const NIGHT = {
   /** Multiplier for colours that ignore lighting (the target beacon), so paint does not shine like a lamp. */
   unlit: 0.35,
   blobShadow: 0.12,
+  /** How much of the day sky the helicopter paint still reflects. */
+  environment: 0.12,
 };
 
 const SKY_R = 4000;

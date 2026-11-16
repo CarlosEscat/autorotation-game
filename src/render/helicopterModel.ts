@@ -2,20 +2,12 @@ import * as THREE from 'three';
 import { HeliLights, buildHeliLights } from './heliLights';
 import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
 import { buildHeavyExterior } from './heavyModel';
-import { lambert } from './materials';
+import { PALETTE, lambert, paint } from './materials';
+import { V, bladeGeometry, mergeByMaterial, outline, roundBox, slab, tube } from './modelKit';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => lambert(color, { flatShading: true, ...extra });
-
-/** A box stretched between two points, used for frames, tubes and struts. */
-export function bar(from: THREE.Vector3, to: THREE.Vector3, thickness: number, material: THREE.Material): THREE.Mesh {
-  const len = from.distanceTo(to);
-  const m = new THREE.Mesh(new THREE.BoxGeometry(thickness, thickness, len), material);
-  m.position.copy(from).add(to).multiplyScalar(0.5);
-  m.lookAt(to);
-  return m;
-}
-
-export const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+/** Matte, smooth-shaded material for the cockpit interior. */
+export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => lambert(color, { flatShading: false, ...extra });
 
 export interface HelicopterModel {
   root: THREE.Group;
@@ -35,71 +27,124 @@ export interface HelicopterModel {
   lights: HeliLights;
 }
 
+/** Paint for both helicopters: glossy, lit by the sky's environment map, with baked occlusion in the vertices. */
+export const HELI = {
+  red: paint(PALETTE.paintRed, 0.36, 0.05, { vertexColors: true }),
+  redHeavy: paint(PALETTE.paintRedHeavy, 0.4, 0.05, { vertexColors: true }),
+  white: paint(PALETTE.paintWhite, 0.4, 0.05, { vertexColors: true }),
+  yellow: paint(PALETTE.paintYellow, 0.45, 0.05, { vertexColors: true }),
+  trim: paint(PALETTE.trim, 0.55, 0.3, { vertexColors: true }),
+  trimHeavy: paint(PALETTE.trimHeavy, 0.55, 0.3, { vertexColors: true }),
+  metal: paint(PALETTE.metal, 0.35, 0.8, { vertexColors: true }),
+  tyre: paint(PALETTE.tyre, 0.85, 0, { vertexColors: true }),
+  glass: paint(0x50758c, 0.04, 0.55, { vertexColors: true }),
+  // Parts that turn are not merged and carry no baked occlusion.
+  blade: paint(PALETTE.blade, 0.5, 0.25),
+  bladeTip: paint(PALETTE.paintWhite, 0.4, 0.05),
+};
+
+/** The light trainer's cabin: a teardrop along Z, nose forward (-Z), radius per station. */
+const CABIN_PROFILE: [r: number, z: number][] = [[0, -1.95], [0.42, -1.82], [0.74, -1.45], [0.92, -0.85], [0.96, -0.15], [0.86, 0.5], [0.6, 0.95], [0.3, 1.3], [0, 1.4]];
+
+/** The profile resampled along a smooth curve, so the lathe has no corners. */
+function smoothProfile(scaleR = 1, scaleZ = 1, maxZ = Infinity): THREE.Vector2[] {
+  const curve = new THREE.CatmullRomCurve3(CABIN_PROFILE.map(([r, z]) => new THREE.Vector3(r, z, 0)), false, 'centripetal');
+  return curve.getSpacedPoints(22).filter((p) => p.y <= maxZ).map((p) => new THREE.Vector2(Math.max(0, p.x) * scaleR, p.y * scaleZ));
+}
+
+/** Geometry reduced to non-indexed position and normal, so differently built parts can be merged. */
+export function bare(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const out = g.index ? g.toNonIndexed() : g;
+  for (const name of Object.keys(out.attributes)) if (name !== 'position' && name !== 'normal') out.deleteAttribute(name);
+  return out;
+}
+
+/** Two-blade tail rotor: one tapered blade through the hub, turned about X by the renderer. */
+export function tailRotorBlades(span: number, chord: number, thickness: number, material: THREE.Material, crossed: boolean): THREE.Mesh {
+  const one = () => {
+    const g = bladeGeometry(0.06, span / 2 - 0.06, chord, chord * 0.75, thickness);
+    return mergeGeometries([g.clone(), g.clone().rotateY(Math.PI)])!;
+  };
+  // Blades lie along X: a quarter turn about Z makes them span along Y, thin along X.
+  const geos = [one().rotateZ(Math.PI / 2)];
+  if (crossed) geos.push(geos[0].clone().rotateX(Math.PI / 2));
+  const hub = new THREE.CylinderGeometry(0.07, 0.07, 0.08, 12).rotateZ(Math.PI / 2);
+  return new THREE.Mesh(mergeGeometries([...geos, hub].map(bare))!, material);
+}
+
 /** The light trainer's airframe; returns the group and its tail rotor. */
 function buildLightExterior(): { exterior: THREE.Group; tailRotor: THREE.Group } {
   const A = AIRCRAFT;
-  const exterior = new THREE.Group();
+  const { red, white, trim, glass } = HELI;
+  const parts = new THREE.Group();
 
-  // --- Exterior -------------------------------------------------------------
-  const red = mat(0xc8432f), white = mat(0xf1ece0), dark = mat(0x3a3a40), glass = mat(0x7da6bd, { transparent: true, opacity: 0.85 });
-  // Cabin: a lathed teardrop along Z, rounded nose forward (-Z), tapering into the tail cone.
-  const profile = [[0, -1.95], [0.42, -1.82], [0.74, -1.45], [0.92, -0.85], [0.96, -0.15], [0.86, 0.5], [0.6, 0.95], [0.3, 1.3], [0, 1.4]];
-  const cabinGeo = new THREE.LatheGeometry(profile.map(([r, z]) => new THREE.Vector2(r, z)), 10).rotateX(Math.PI / 2);
-  const cabin = new THREE.Mesh(cabinGeo, red);
+  // Cabin: a smooth lathed teardrop, slightly narrower than tall.
+  const cabin = new THREE.Mesh(new THREE.LatheGeometry(smoothProfile(), 28).rotateX(Math.PI / 2), red);
   cabin.scale.set(0.98, 0.92, 1);
   cabin.position.set(0, 0.2, -0.15);
-  // Tinted canopy over the upper front of the cabin, following the same profile.
-  const canopyGeo = new THREE.LatheGeometry(profile.slice(0, 6).map(([r, z]) => new THREE.Vector2(r * 1.03, z * 1.01)), 10, Math.PI - 1.25, 2.5).rotateX(Math.PI / 2);
-  const canopy = new THREE.Mesh(canopyGeo, glass);
+  // Bubble canopy over the upper front, a hair proud of the cabin, following the same curve.
+  const canopy = new THREE.Mesh(new THREE.LatheGeometry(smoothProfile(1.035, 1.01, 0.55), 18, Math.PI - 1.3, 2.6).rotateX(Math.PI / 2), glass);
   canopy.scale.copy(cabin.scale);
-  canopy.position.copy(cabin.position).add(V(0, 0.04, 0));
-  const belly = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.18, 2.0), dark);
-  belly.position.set(0, -0.62, -0.2);
-  // Transmission/engine cowling behind the mast, with a fairing around the mast foot.
-  const cowl = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.5, 1.3), white);
+  canopy.position.copy(cabin.position).add(V(0, 0.03, 0));
+  // Slim frame along the canopy's edge: down each side, then over the top at the back.
+  const edge = (phi: number, r: number, z: number) => V(1.045 * r * Math.sin(phi) * 0.98, 0.23 - 1.045 * r * Math.cos(phi) * 0.92, 1.01 * z - 0.15);
+  const rim = smoothProfile().filter((p) => p.y <= 0.55 && p.y > -1.9);
+  const back = rim[rim.length - 1];
+  const arch = Array.from({ length: 9 }, (_, k) => edge(Math.PI - 1.3 + (2.6 * k) / 8, back.x, back.y));
+  const frame = tube([...rim.map((p) => edge(Math.PI - 1.3, p.x, p.y)), ...arch.slice(1, -1), ...rim.slice().reverse().map((p) => edge(Math.PI + 1.3, p.x, p.y))], 0.022, trim, 64, 6);
+  parts.add(frame);
+  // Rounded belly pan.
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 10), trim);
+  belly.scale.set(0.6, 0.11, 1.05);
+  belly.position.set(0, -0.6, -0.2);
+  // Engine and transmission cowling behind the mast, with a fairing round the mast foot.
+  const cowl = roundBox(0.82, 0.5, 1.3, 0.17, white);
   cowl.position.set(0, 1.05, 0.65);
-  const fairing = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.34, 0.35, 6), white);
+  const fairing = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.34, 0.35, 20), white);
   fairing.position.set(0, 1.4, 0.05);
-  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.4, 6).rotateX(Math.PI / 2), dark);
+  const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.1, 0.4, 14, 1, true).rotateX(Math.PI / 2), trim);
   exhaust.position.set(0.25, 1.0, 1.4);
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.9, 6), dark);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.9, 12), trim);
   mast.position.set(0, A.hubHeight - 0.45, 0);
-  const hub = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.3), dark);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.12, 16), trim);
   hub.position.set(0, A.hubHeight, 0);
-  // Tail boom tapering from the cabin to the tail rotor, with fins.
+  // Tail boom tapering from the cabin to the tail rotor, with a rounded tip.
   const boomStart = 1.05, boomLen = A.tailBoomLength - boomStart + 0.15;
-  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.22, boomLen, 6).rotateX(Math.PI / 2), white);
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.22, boomLen, 16).rotateX(Math.PI / 2), white);
   boom.position.set(0, 0.6, boomStart + boomLen / 2);
   boom.rotation.x = -0.03;
-  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.1, 0.55), red);
+  const gearbox = new THREE.Mesh(new THREE.SphereGeometry(0.13, 14, 8), white);
+  gearbox.scale.set(1.1, 1, 1.4);
+  gearbox.position.set(0.04, 0.72, A.tailBoomLength);
+  // Swept fins and the horizontal stabiliser, with softened edges.
+  const fin = outline([[-0.32, -0.55], [0.26, -0.55], [0.2, 0.55], [-0.1, 0.55]], 0.06, red);
   fin.position.set(0, 1.05, A.tailBoomLength - 0.05);
   fin.rotation.x = -0.45;
-  const ventral = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.55, 0.4), red);
+  const ventral = outline([[-0.2, -0.27], [0.18, -0.27], [0.12, 0.27], [-0.2, 0.27]], 0.06, red);
   ventral.position.set(0, 0.25, A.tailBoomLength - 0.05);
   ventral.rotation.x = 0.45;
-  const stab = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.05, 0.34), red);
+  const stab = slab(1.2, 0.34, 0.14, 0.05, red);
   stab.position.set(0, 0.55, A.tailBoomLength - 0.7);
-  exterior.add(cabin, canopy, belly, cowl, fairing, exhaust, mast, hub, boom, fin, ventral, stab);
+  parts.add(cabin, canopy, belly, cowl, fairing, exhaust, mast, hub, boom, gearbox, fin, ventral, stab);
+
+  // Skids: one bent tube each, toe swept up at the front. The tube's underside sits on the ground plane.
+  const r = 0.045, y = -A.skidHeight + r + 0.03;
   for (const sx of [-1, 1]) {
-    const y = -A.skidHeight;
-    exterior.add(bar(V(sx * 1.05, y, -1.75), V(sx * 1.05, y, 1.45), 0.08, dark)); // skid
-    exterior.add(bar(V(sx * 1.05, y, -1.75), V(sx * 1.05, y + 0.28, -2.1), 0.08, dark)); // upturned toe
-    for (const z of [-0.95, 0.75]) {
-      exterior.add(bar(V(sx * 1.05, y, z), V(sx * 0.82, -0.62, z), 0.07, dark)); // cross-tube leg
-      exterior.add(bar(V(sx * 0.82, -0.62, z), V(0, -0.66, z), 0.07, dark));
-    }
-    const step = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.4), dark);
+    const x = sx * 1.05;
+    parts.add(tube([V(x, y, 1.45), V(x, y, 0), V(x, y, -1.6), V(x, y + 0.08, -1.92), V(x, y + 0.28, -2.1)], r, trim, 24));
+    const step = roundBox(0.22, 0.04, 0.4, 0.015, trim, 1);
     step.position.set(sx * 0.9, -0.85, -0.95);
-    exterior.add(step);
+    parts.add(step);
+  }
+  // Cross-tubes: one bowed tube from skid to skid under the cabin.
+  for (const z of [-0.95, 0.75]) {
+    parts.add(tube([V(-1.05, y, z), V(-0.93, -0.78, z), V(-0.72, -0.63, z), V(0, -0.67, z), V(0.72, -0.63, z), V(0.93, -0.78, z), V(1.05, y, z)], 0.038, trim, 18));
   }
 
+  const exterior = mergeByMaterial(parts, { occlusion: { low: -1.2, high: 1.1, dark: 0.62 } });
   const tailRotor = new THREE.Group();
   tailRotor.position.set(0.17, 0.72, A.tailBoomLength);
-  for (const a of [0, Math.PI / 2]) {
-    const b = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.2, 0.12), white);
-    b.rotation.x = a;
-    tailRotor.add(b);
-  }
+  tailRotor.add(tailRotorBlades(1.2, 0.12, 0.03, HELI.bladeTip, true));
   exterior.add(tailRotor);
   return { exterior, tailRotor };
 }
@@ -108,13 +153,18 @@ function buildLightExterior(): { exterior: THREE.Group; tailRotor: THREE.Group }
 function buildRotor(A: AircraftSpec) {
   const rotor = new THREE.Group();
   rotor.position.set(0, A.hubHeight, 0);
-  const bladeMat = mat(0x222226);
   const bladeAngles = Array.from({ length: A.bladeCount }, (_, i) => (i * Math.PI * 2) / A.bladeCount);
+  // Tapered blades with white tips (the tips are what the eye follows on a turning rotor), merged into two draws.
+  const tipLen = A.rotorRadius * 0.07;
+  const blades: THREE.BufferGeometry[] = [], tips: THREE.BufferGeometry[] = [];
   for (const a of bladeAngles) {
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(A.rotorRadius, 0.04, A.bladeChord).translate(A.rotorRadius / 2, 0, 0), bladeMat);
-    blade.rotation.y = a;
-    rotor.add(blade);
+    blades.push(bare(bladeGeometry(0.12, A.rotorRadius - 0.12 - tipLen, A.bladeChord, A.bladeChord * 0.82, 0.045).rotateY(a)));
+    // Blade grip: a short round root fitting from the hub out to the blade.
+    blades.push(bare(new THREE.CylinderGeometry(0.05, 0.06, 0.3, 10).rotateZ(Math.PI / 2).translate(0.15, 0, 0).rotateY(a)));
+    tips.push(bare(bladeGeometry(A.rotorRadius - tipLen, tipLen, A.bladeChord * 0.82, A.bladeChord * 0.78, 0.045).rotateY(a)));
   }
+  rotor.add(new THREE.Mesh(mergeGeometries(blades)!, HELI.blade));
+  rotor.add(new THREE.Mesh(mergeGeometries(tips)!, HELI.bladeTip));
   const rotorDisc = new THREE.Mesh(
     new THREE.CircleGeometry(A.rotorRadius, 32).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x3a3a42, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false }),
