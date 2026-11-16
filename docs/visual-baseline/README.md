@@ -90,3 +90,33 @@ In flight (chase camera, 1000 ft, day, real-time shadow on), same machine and me
 | JS heap | 29 MB | 32 MB | 32 MB |
 
 Production bundle: 779 kB JS, 215.5 kB gzip (+4.5 kB gzip).
+
+## Stage 2 — terrain and mountains (`stage2/`)
+
+New `src/render/terrainMesh.ts`. Collision is untouched (decision D1 (a)): the terrain mesh has exactly the
+simulation's vertices and diagonals, now indexed and smooth-shaded. Checked in the page: every vertex equals
+`world.heights`, and 300 random downward rays onto the drawn ground match `heightAt` within 5e-13 m.
+
+- **Ground map** baked at start-up (1024² on desktop, about 3 m per texel; 512² on touch devices): grass blends with
+  mid-scale dry/lush patches, soft ragged field edges and mow stripes, the farm strip, slope rock, a sandy beach that
+  turns to wet sand and lake bed under water, and baked occlusion in hollows and under trees and buildings.
+  A 128² map is baked synchronously; the full one is baked in 6 ms slices and swapped in, about 0.4 s after load.
+- **Detail noise**: one 128² tiling texture at two scales multiplied into the ground; it fades out by itself in the mipmaps.
+- **Lake**: a sheet whose colour and opacity follow the depth, so the shore fades in; glossy, reflecting the sky.
+- **Scenery mountains** beyond the edge of the world, fading into the haze. There is no world boundary in the game,
+  so within 250 m of the edge they follow, a few metres lower, the edge height the simulation carries outwards;
+  further out a pilot could fly through them.
+
+| | Stage 1 | Stage 2 |
+| --- | ---: | ---: |
+| FPS / worst frame, in flight | 60 / 17.7 ms | 60 / 17.7 ms |
+| `renderer.render` CPU, median / p95 | 2.1 / 2.5 ms | 2.1 / 2.7 ms |
+| Draw calls, in flight | 117 | 118 |
+| Triangles, in flight | 92 k | 123 k (scenery mountains 12.5 k, lake 18 k) |
+| Programs (day + night) | 34 | 35 |
+| Textures | 5 | 7 (ground map ~5.6 MB on the GPU with mipmaps, detail 85 kB) |
+| Load event (dev server, 3 reloads) | 145–165 ms | 168–213 ms |
+
+Ground-map bake times, warm: 128² ≈ 6–24 ms (24 ms cold), 512² ≈ 66 ms, 1024² ≈ 119 ms; with the CPU slowed 4×: 512² 181 ms,
+1024² 607 ms (in slices, so it never blocks a frame for more than about 6 ms). Production bundle: 785 kB JS,
+217.9 kB gzip (+2.4 kB gzip).

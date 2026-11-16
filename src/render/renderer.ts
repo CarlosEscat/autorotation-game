@@ -10,7 +10,8 @@ import { Gate, Pad, gateY } from '../game/levels';
 import { StatsOverlay } from './statsOverlay';
 import { MOON_DIR, NIGHT, buildNightSky, buildWorldLights } from './night';
 import { LIGHT, nightLights } from '../world/nightLights';
-import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
+import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon } from './worldMesh';
+import { buildDistantMountains, buildTerrain, buildWater } from './terrainMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
 
@@ -139,7 +140,7 @@ export class GameRenderer {
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     const clouds = buildClouds();
     this.clouds = (clouds.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
-    this.scene.add(this.sky, clouds, ...ground, buildObstacles(world));
+    this.scene.add(this.sky, clouds, ...ground, buildDistantMountains(world), buildObstacles(world));
     this.towerLight = this.scene.getObjectByName('towerLight');
     this.runway = world.areas.find((a) => a.id === 'runway');
     this.beacon = buildTargetBeacon();

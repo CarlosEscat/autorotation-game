@@ -1,6 +1,6 @@
 # Stylized realism: analysis and staged plan
 
-Status: stages 0 and 1 implemented on branch `visual/stylized-realism` (results in the baseline README); stages 2–6 proposed.
+Status: stages 0–2 implemented on branch `visual/stylized-realism` (results in the baseline README); stages 3–6 proposed. D1 decided: (a), collision unchanged.
 Baseline shots and numbers: [docs/visual-baseline/README.md](../../visual-baseline/README.md).
 
 Goal: move from the current N64 / flat-shaded low-poly look to smooth, colourful, atmospheric stylized realism
