@@ -268,6 +268,7 @@ function buildTower(x: number, base: number, z: number, height: number): THREE.G
   mast.position.y = cab + 6.1;
   const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
   light.position.y = cab + 7.1;
+  light.name = 'towerLight';
   g.add(mast, light);
   g.position.set(x, base, z);
   return g;

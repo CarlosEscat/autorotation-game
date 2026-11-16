@@ -7,7 +7,8 @@ import { WaterSpray } from './waterSpray';
 import { FireFx } from './fireFx';
 import { Fire } from '../game/fire';
 import { Gate, Pad, gateY } from '../game/levels';
-import { MOON_DIR, NIGHT, buildNightSky } from './night';
+import { MOON_DIR, NIGHT, buildNightSky, buildWorldLights } from './night';
+import { LIGHT, nightLights } from '../world/nightLights';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
@@ -36,6 +37,9 @@ export class GameRenderer {
   private hemi: THREE.HemisphereLight;
   private clouds: THREE.MeshLambertMaterial;
   private nightSky: THREE.Mesh | null = null;
+  private worldLights: ReturnType<typeof buildWorldLights> | null = null;
+  private towerLight: THREE.Object3D | undefined;
+  private runway: LandingArea | undefined;
   /** Moonlit night instead of the late-afternoon day. Changes only what is seen. */
   private night = false;
   private lightDir = SUN_DIR;
@@ -99,6 +103,8 @@ export class GameRenderer {
     const clouds = buildClouds();
     this.clouds = (clouds.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
     this.scene.add(this.sky, clouds, ...ground, buildObstacles(world));
+    this.towerLight = this.scene.getObjectByName('towerLight');
+    this.runway = world.areas.find((a) => a.id === 'runway');
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon, this.spray.points);
@@ -161,6 +167,9 @@ export class GameRenderer {
     this.night = on;
     if (on && !this.nightSky) this.scene.add((this.nightSky = buildNightSky(MOON_DIR)));
     if (this.nightSky) this.nightSky.visible = on;
+    if (on && !this.worldLights) this.scene.add((this.worldLights = buildWorldLights(nightLights(this.world))).group);
+    if (this.worldLights) this.worldLights.group.visible = on;
+    if (this.towerLight) this.towerLight.visible = true;
     this.sky.visible = !on;
     const horizon = on ? NIGHT.horizon : HAZE;
     this.scene.fog!.color.setHex(horizon);
@@ -333,7 +342,21 @@ export class GameRenderer {
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
     this.nightSky?.position.set(s.pos.x, 0, s.pos.z);
+    if (this.night) this.animateNight(s);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /** Flashing and direction-dependent lights. Flashes follow simulation time, so a paused game shows them frozen. */
+  private animateNight(s: HelicopterState) {
+    if (this.towerLight) this.towerLight.visible = s.time % 2 < 1.2;
+    const rw = this.runway, wl = this.worldLights;
+    if (!rw || !wl) return;
+    // A runway end shows green to a pilot approaching it from outside, red to one already past it.
+    const along = (s.pos.x - rw.cx) * Math.sin(rw.rotation) + (s.pos.z - rw.cz) * Math.cos(rw.rotation);
+    for (const end of [-1, 1] as const) {
+      const color = (wl.ends[end].material as THREE.PointsMaterial).color, want = along * end > rw.halfLength ? LIGHT.green : LIGHT.red;
+      if (color.getHex() !== want) color.setHex(want);
+    }
   }
 
   /** Screen position of a world point (for HUD markers), or null when behind the camera. */

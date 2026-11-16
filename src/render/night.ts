@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../world/rng';
+import { LIGHT, NightLight } from '../world/nightLights';
 
 export const MOON_DIR = new THREE.Vector3(0.45, 0.42, -0.79).normalize();
 
@@ -56,4 +57,57 @@ export function buildNightSky(moonDir: THREE.Vector3): THREE.Mesh {
 
   sky.add(moon, points);
   return sky;
+}
+
+/** Soft round glow, drawn once and shared by every light. */
+function glowTexture(): THREE.Texture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.38, 'rgba(255,255,255,1)');
+  g.addColorStop(0.62, 'rgba(255,255,255,0.3)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // No mipmaps: a far light is a few pixels wide and must keep its bright core, not the average of the whole glow.
+  tex.generateMipmaps = false;
+  tex.minFilter = THREE.LinearFilter;
+  return tex;
+}
+
+/** Glowing points that never light anything. Far lights keep a few pixels so a runway still reads from across the map. */
+function glowMaterial(map: THREE.Texture, vertexColors: boolean): THREE.PointsMaterial {
+  const m = new THREE.PointsMaterial({ map, size: 14, sizeAttenuation: true, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace('#include <logdepthbuf_vertex>', 'gl_PointSize = max(gl_PointSize, 8.0);\n#include <logdepthbuf_vertex>');
+  };
+  return m;
+}
+
+const pointsOf = (lights: NightLight[], material: THREE.PointsMaterial, dim: (l: NightLight) => number = () => 1) => {
+  const geo = new THREE.BufferGeometry();
+  const c = new THREE.Color();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(lights.flatMap((l) => [l.x, l.y, l.z]), 3));
+  if (material.vertexColors) geo.setAttribute('color', new THREE.Float32BufferAttribute(lights.flatMap((l) => c.setHex(l.color).multiplyScalar(dim(l)).toArray()), 3));
+  return new THREE.Points(geo, material);
+};
+
+/**
+ * Every world light as three draws: one for all steady lights, and one per runway end row,
+ * so each end can be turned green or red by setting its material colour.
+ */
+export function buildWorldLights(lights: NightLight[]): { group: THREE.Group; ends: Record<-1 | 1, THREE.Points> } {
+  const map = glowTexture();
+  const group = new THREE.Group();
+  const steady = pointsOf(lights.filter((l) => l.kind !== 'runwayEnd'), glowMaterial(map, true), (l) => (l.kind === 'window' ? 0.6 : 1));
+  const end = (e: -1 | 1) => pointsOf(lights.filter((l) => l.kind === 'runwayEnd' && l.end === e), glowMaterial(map, false));
+  const ends = { [-1]: end(-1), 1: end(1) } as Record<-1 | 1, THREE.Points>;
+  for (const e of [-1, 1] as const) (ends[e].material as THREE.PointsMaterial).color.setHex(LIGHT.green);
+  group.add(steady, ends[-1], ends[1]);
+  return { group, ends };
 }

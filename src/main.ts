@@ -5,7 +5,9 @@ import './style.css';
 import { Game } from './game/game';
 
 const root = document.getElementById('app')!;
-new Game(root);
+const game = new Game(root);
+// Development only: lets a browser check place the helicopter. Stripped from production builds.
+if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = game;
 
 // Block page scroll, pinch-zoom and the context menu while playing.
 document.addEventListener(
