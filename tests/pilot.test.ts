@@ -18,7 +18,7 @@ describe('pilot', () => {
     expect(p.callsign).toHaveLength(12);
     expect(p.rank).toBe('student');
     expect(p.shownRatings).toEqual(['heavy']);
-    expect(p.logbook).toEqual({ airSeconds: { light: 120, heavy: 0 }, flights: 0, landings: 7, crashes: 0, firesOut: 0 });
+    expect(p.logbook).toEqual({ airSeconds: { light: 120, heavy: 0 }, nightSeconds: 0, flights: 0, landings: 7, crashes: 0, firesOut: 0 });
   });
 
   it('cleanName clamps and never returns only spaces', () => {

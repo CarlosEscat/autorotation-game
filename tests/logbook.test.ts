@@ -95,7 +95,7 @@ describe('logbook', () => {
 
   it('sampleOf reads a real session: airborne at the start of a free flight', () => {
     const s = new FlightSession(createWorld(), { ...DEFAULT_CONFIG, freeFlight: true });
-    expect(sampleOf(s)).toEqual({ aircraft: 'light', airborne: true, crashed: false, fireOut: false });
+    expect(sampleOf(s)).toEqual({ aircraft: 'light', airborne: true, crashed: false, fireOut: false, night: false });
   });
 
   it('two recorders on one book add up: a restarted flight keeps its time and counts each flight once', () => {
