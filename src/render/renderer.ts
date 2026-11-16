@@ -7,11 +7,13 @@ import { WaterSpray } from './waterSpray';
 import { FireFx } from './fireFx';
 import { Fire } from '../game/fire';
 import { Gate, Pad, gateY } from '../game/levels';
+import { MOON_DIR, NIGHT, buildNightSky } from './night';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
 
 export type CameraMode = 'cockpit' | 'chase';
 
 const HAZE = 0xe6dcc6;
+const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3 };
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
 const SWEEP_RATE = 12; // rad/s of the cockpit rotor sweep at 100 % NR
 
@@ -31,6 +33,12 @@ export class GameRenderer {
   private pads: THREE.Group[] = [];
   private sky: THREE.Mesh;
   private sun: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
+  private clouds: THREE.MeshLambertMaterial;
+  private nightSky: THREE.Mesh | null = null;
+  /** Moonlit night instead of the late-afternoon day. Changes only what is seen. */
+  private night = false;
+  private lightDir = SUN_DIR;
   private shadow: THREE.Mesh;
   private chasePos = new THREE.Vector3();
   // Scratch vectors, reused every frame so the render loop allocates nothing.
@@ -66,8 +74,9 @@ export class GameRenderer {
     // Low, warm late-afternoon sun with a soft sky fill and warm haze.
     this.scene.fog = new THREE.Fog(HAZE, 600, 3400);
     this.scene.background = new THREE.Color(HAZE);
-    this.scene.add(new THREE.HemisphereLight(0xbcd4f0, 0x4f5a3c, 1.0));
-    this.sun = new THREE.DirectionalLight(0xffdcb0, 2.4);
+    this.hemi = new THREE.HemisphereLight(DAY.hemiSky, DAY.hemiGround, DAY.hemi);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(DAY.sun, DAY.sunPower);
     this.sun.position.copy(SUN_DIR);
     this.scene.add(this.sun, this.sun.target);
 
@@ -87,7 +96,9 @@ export class GameRenderer {
     this.sky = buildSky(SUN_DIR);
     const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
-    this.scene.add(this.sky, buildClouds(), ...ground, buildObstacles(world));
+    const clouds = buildClouds();
+    this.clouds = (clouds.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+    this.scene.add(this.sky, clouds, ...ground, buildObstacles(world));
     this.beacon = buildTargetBeacon();
     this.beaconColumn = (this.beacon.getObjectByName('column') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.beacon, this.spray.points);
@@ -97,7 +108,7 @@ export class GameRenderer {
 
     this.shadow = new THREE.Mesh(
       new THREE.CircleGeometry(2.6, 10).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: DAY.blobShadow, depthWrite: false }),
     );
     this.scene.add(this.shadow);
 
@@ -139,6 +150,32 @@ export class GameRenderer {
   /** Whether water is leaving the tank; the spray is drawn by the next `render`. */
   setWaterDrop(on: boolean) {
     this.dropping = on;
+  }
+
+  /**
+   * Day or moonlit night. Every value is set outright in both branches, so going back to day restores it exactly.
+   * The sun doubles as the moon; its shadow map is off at night.
+   */
+  setNight(on: boolean) {
+    if (on === this.night) return;
+    this.night = on;
+    if (on && !this.nightSky) this.scene.add((this.nightSky = buildNightSky(MOON_DIR)));
+    if (this.nightSky) this.nightSky.visible = on;
+    this.sky.visible = !on;
+    const horizon = on ? NIGHT.horizon : HAZE;
+    this.scene.fog!.color.setHex(horizon);
+    (this.scene.background as THREE.Color).setHex(horizon);
+    this.hemi.color.setHex(on ? NIGHT.hemiSky : DAY.hemiSky);
+    this.hemi.groundColor.setHex(on ? NIGHT.hemiGround : DAY.hemiGround);
+    this.hemi.intensity = on ? NIGHT.hemi : DAY.hemi;
+    this.sun.color.setHex(on ? NIGHT.moon : DAY.sun);
+    this.sun.intensity = on ? NIGHT.moonPower : DAY.sunPower;
+    this.sun.castShadow = !on;
+    this.lightDir = on ? MOON_DIR : SUN_DIR;
+    this.clouds.color.setHex(on ? NIGHT.cloud : DAY.cloud);
+    this.clouds.emissive.setHex(on ? NIGHT.cloudGlow : DAY.cloudGlow);
+    (this.shadow.material as THREE.MeshBasicMaterial).opacity = on ? NIGHT.blobShadow : DAY.blobShadow;
+    this.beacon.traverse((o) => ((o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined)?.color.setHex(DAY.beacon).multiplyScalar(on ? NIGHT.unlit : 1));
   }
 
   /** Windsocks depend on the wind of the current flight. */
@@ -261,7 +298,9 @@ export class GameRenderer {
     if (cockpit) h.rotor.rotation.y = this.sweepAngle;
     h.cockpit.visible = cockpit;
     h.exterior.visible = !cockpit;
-    h.shadowProxy.visible = cockpit && this.shadows;
+    // The moon is too dim to cast a shadow worth its cost.
+    const realShadow = this.shadows && !this.night;
+    h.shadowProxy.visible = cockpit && realShadow;
 
     if (cockpit) {
       this.camera.position.set(0, 0, 0);
@@ -280,12 +319,12 @@ export class GameRenderer {
       if (look.yaw || look.pitch) this.camera.rotateY(look.yaw), this.camera.rotateX(look.pitch);
     }
 
-    this.renderer.shadowMap.enabled = this.shadows;
+    this.renderer.shadowMap.enabled = realShadow;
     this.sun.target.position.set(s.pos.x, s.pos.y, s.pos.z);
-    this.sun.position.copy(SUN_DIR).multiplyScalar(120).add(this.sun.target.position);
+    this.sun.position.copy(this.lightDir).multiplyScalar(120).add(this.sun.target.position);
     const gy = this.world.heightAt(s.pos.x, s.pos.z);
     this.shadow.position.set(s.pos.x, gy + 0.15, s.pos.z);
-    this.shadow.visible = !this.shadows && !cockpit && s.pos.y - gy < 60;
+    this.shadow.visible = !realShadow && !cockpit && s.pos.y - gy < 60;
 
     // The column guides from afar but would wash out the helicopter near the target.
     const bd = Math.hypot(s.pos.x - this.beacon.position.x, s.pos.z - this.beacon.position.z);
@@ -293,6 +332,7 @@ export class GameRenderer {
     this.beaconColumn.visible = this.beaconColumn.opacity > 0.005;
 
     this.sky.position.set(s.pos.x, 0, s.pos.z);
+    this.nightSky?.position.set(s.pos.x, 0, s.pos.z);
     this.renderer.render(this.scene, this.camera);
   }
 

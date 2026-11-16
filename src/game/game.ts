@@ -264,6 +264,7 @@ export class Game {
     this.renderer.setPads([]);
     this.renderer.setFire(this.session.fire);
     this.renderer.setWind(cfg.windFromDeg, cfg.windKt);
+    this.renderer.setNight(cfg.night ?? false);
     this.renderer.setMode('chase');
     this.screens.show(null);
     this.hud.setVisible(true);
@@ -339,6 +340,7 @@ export class Game {
     this.screens.setPilot(this.saved.pilot, this.saved.training);
     this.screens.setHero(Object.values(this.saved.training).some((n) => n > 0) ? 'free' : 'training');
     this.screens.show('menu');
+    this.renderer.setNight(false);
     this.audio.suspend();
     this.announce();
   }
