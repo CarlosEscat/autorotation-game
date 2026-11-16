@@ -408,6 +408,7 @@ export class Screens {
       <h3>Logbook</h3>
       <dl class="logbook">
         <div><dt>Flight time</dt><dd>${formatFlightTime(totalSeconds(b))}<small> Trainer ${formatFlightTime(b.airSeconds.light)} · Heavy ${formatFlightTime(b.airSeconds.heavy)}</small></dd></div>
+        <div><dt>Night</dt><dd>${formatFlightTime(b.nightSeconds)}</dd></div>
         <div><dt>Flights</dt><dd>${b.flights}</dd></div>
         <div><dt>Landings</dt><dd>${b.landings}</dd></div>
         <div><dt>Crashes</dt><dd>${b.crashes}</dd></div>

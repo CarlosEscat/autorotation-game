@@ -4,13 +4,35 @@ import { DEFAULT_CONFIG, FlightConfig, FlightSession } from '../src/game/session
 import { neutralControls } from '../src/sim/state';
 import { createWorld } from '../src/world/world';
 
-const air: FlightSample = { aircraft: 'light', airborne: true, crashed: false, fireOut: false };
+const air: FlightSample = { aircraft: 'light', airborne: true, crashed: false, fireOut: false, night: false };
 const ground: FlightSample = { ...air, airborne: false };
 const run = (r: LogRecorder, s: FlightSample, seconds: number) => {
   for (let i = 0; i < seconds * 10; i++) r.step(s, 0.1);
 };
 
 describe('logbook', () => {
+  it('counts night seconds only when airborne at night', () => {
+    const b = emptyLogbook();
+    const r = new LogRecorder(b);
+    run(r, { ...air, night: true }, 10);
+    run(r, { ...ground, night: true }, 10);
+    expect(b.nightSeconds).toBeCloseTo(10, 3);
+    expect(b.airSeconds.light).toBeCloseTo(10, 3);
+  });
+
+  it('logs no night time by day', () => {
+    const b = emptyLogbook();
+    const r = new LogRecorder(b);
+    run(r, air, 10);
+    expect(b.nightSeconds).toBe(0);
+  });
+
+  it('reads night from the flight config', () => {
+    const world = createWorld();
+    expect(sampleOf(new FlightSession(world, { ...DEFAULT_CONFIG, night: true })).night).toBe(true);
+    expect(sampleOf(new FlightSession(world, DEFAULT_CONFIG)).night).toBe(false);
+  });
+
   it('counts only airborne time, per helicopter', () => {
     const b = emptyLogbook();
     const r = new LogRecorder(b);

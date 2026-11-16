@@ -50,4 +50,11 @@ describe('pilot', () => {
     const p = normalizePilot(undefined);
     expect(pendingPromotion(p, { checkride: 3, conversion: 1 })?.ratings).toEqual(['emergency', 'heavy']);
   });
+
+  it('loads a logbook with no night total, or a bad one, as 0', () => {
+    expect(normalizePilot({ logbook: { flights: 3 } }).logbook.nightSeconds).toBe(0);
+    expect(normalizePilot({ logbook: { nightSeconds: -5 } }).logbook.nightSeconds).toBe(0);
+    expect(normalizePilot({ logbook: { nightSeconds: NaN } }).logbook.nightSeconds).toBe(0);
+    expect(normalizePilot({ logbook: { nightSeconds: 90.5 } }).logbook.nightSeconds).toBe(90.5);
+  });
 });

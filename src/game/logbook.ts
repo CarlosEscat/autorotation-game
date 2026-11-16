@@ -5,6 +5,8 @@ import { FlightSession } from './session';
 export interface Logbook {
   /** Seconds in the air, per helicopter type. Time on the ground does not count. */
   airSeconds: Record<AircraftId, number>;
+  /** Seconds in the air at night, in any helicopter. Already part of `airSeconds`. */
+  nightSeconds: number;
   flights: number;
   landings: number;
   crashes: number;
@@ -15,7 +17,7 @@ export interface Logbook {
 export const MIN_AIRBORNE_S = 10;
 const EPS = 1e-6;
 
-export const emptyLogbook = (): Logbook => ({ airSeconds: { light: 0, heavy: 0 }, flights: 0, landings: 0, crashes: 0, firesOut: 0 });
+export const emptyLogbook = (): Logbook => ({ airSeconds: { light: 0, heavy: 0 }, nightSeconds: 0, flights: 0, landings: 0, crashes: 0, firesOut: 0 });
 
 export const totalSeconds = (b: Logbook) => b.airSeconds.light + b.airSeconds.heavy;
 
@@ -25,6 +27,7 @@ export interface FlightSample {
   airborne: boolean;
   crashed: boolean;
   fireOut: boolean;
+  night: boolean;
 }
 
 export function sampleOf(session: FlightSession): FlightSample {
@@ -35,6 +38,7 @@ export function sampleOf(session: FlightSession): FlightSample {
     airborne: session.phase !== 'ground' && session.phase !== 'done' && !session.onSkids,
     crashed: session.crashed,
     fireOut: session.fire?.out ?? false,
+    night: session.config.night ?? false,
   };
 }
 
@@ -61,6 +65,7 @@ export class LogRecorder {
     }
     if (s.airborne) {
       b.airSeconds[s.aircraft] += dt;
+      if (s.night) b.nightSeconds += dt;
       this.airTime += dt;
       this.airRun += dt;
       if (!this.flightCounted && this.airTime >= MIN_AIRBORNE_S - EPS) {

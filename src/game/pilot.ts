@@ -39,6 +39,7 @@ export function normalizePilot(raw: unknown): Pilot {
     callsign: text(r.callsign, CALLSIGN_MAX),
     logbook: {
       airSeconds: { light: seconds(air.light), heavy: seconds(air.heavy) },
+      nightSeconds: seconds(lb.nightSeconds),
       flights: count(lb.flights),
       landings: count(lb.landings),
       crashes: count(lb.crashes),
