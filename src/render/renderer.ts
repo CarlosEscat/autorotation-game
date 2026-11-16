@@ -16,6 +16,7 @@ export type CameraMode = 'cockpit' | 'chase';
 const HAZE = 0xe6dcc6;
 const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3 };
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
+const ENDS = [-1, 1] as const;
 const SWEEP_RATE = 12; // rad/s of the cockpit rotor sweep at 100 % NR
 
 /** Owns the Three.js scene. Reads simulation state; never changes it. */
@@ -130,6 +131,8 @@ export class GameRenderer {
       built.root.traverse((o) => (o.castShadow = o !== built.rotorDisc));
       built.rotorSweep.traverse((o) => (o.castShadow = false));
       built.lights.group.traverse((o) => (o.castShadow = false));
+      // The landing light lights the ground but never casts a shadow.
+      built.lights.spot.castShadow = built.lights.panelGlow.castShadow = false;
       this.scene.add(built.root);
       this.models.set(spec, built);
     }
@@ -271,7 +274,8 @@ export class GameRenderer {
    * then the picture is drawn at the screen's base resolution. Returns false once nothing is left to drop.
    */
   lowerQuality(): boolean {
-    if (this.shadows) this.shadows = false;
+    // At night the shadow map is already off: dropping it would cost the day its shadow and save nothing now.
+    if (this.shadows && !this.night) this.shadows = false;
     else if (this.maxPixelRatio > 1) {
       this.maxPixelRatio = 1;
       this.resize();
@@ -369,7 +373,7 @@ export class GameRenderer {
     if (!rw || !wl) return;
     // A runway end shows green to a pilot approaching it from outside, red to one already past it.
     const along = (s.pos.x - rw.cx) * Math.sin(rw.rotation) + (s.pos.z - rw.cz) * Math.cos(rw.rotation);
-    for (const end of [-1, 1] as const) {
+    for (const end of ENDS) {
       const color = (wl.ends[end].material as THREE.PointsMaterial).color, want = along * end > rw.halfLength ? LIGHT.green : LIGHT.red;
       if (color.getHex() !== want) color.setHex(want);
     }

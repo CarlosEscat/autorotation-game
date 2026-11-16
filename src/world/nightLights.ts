@@ -70,6 +70,8 @@ export function nightLights(world: World): NightLight[] {
     }
   }
 
+  // Tall things beside where people land: the tower's own lamp is far too small to see from the air.
+  for (const t of world.obstacles) if (t.kind === 'tower') out.push({ x: t.x, y: t.base + t.height + 0.3, z: t.z, color: LIGHT.red, kind: 'hazard' });
   out.push({ x: HILL.x, y: world.heightAt(HILL.x, HILL.z) + 3, z: HILL.z, color: LIGHT.red, kind: 'hazard' });
   return out;
 }

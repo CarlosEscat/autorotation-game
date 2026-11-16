@@ -88,6 +88,8 @@ function glowTexture(): THREE.Texture {
  */
 function glowMaterial(vertexColors: boolean, size = 14, minPx = 8, maxPx = 30): THREE.PointsMaterial {
   const m = new THREE.PointsMaterial({ map: glowTexture(), size, sizeAttenuation: true, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+  // three keys its program cache on the text of onBeforeCompile, which is the same for every size: name the limits.
+  m.customProgramCacheKey = () => `glow:${minPx}:${maxPx}`;
   m.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader.replace('#include <logdepthbuf_vertex>', `gl_PointSize = clamp(gl_PointSize, ${minPx.toFixed(1)}, ${maxPx.toFixed(1)});\n#include <logdepthbuf_vertex>`);
   };

@@ -47,11 +47,17 @@ describe('night lights', () => {
     expect(of('window').every((l) => houses.some((h) => on(l, h)))).toBe(true);
   });
 
-  it('marks Lookout Hill and gives the same lights every time', () => {
+  it('marks Lookout Hill and the top of the control tower in red', () => {
     const hz = of('hazard');
-    expect(hz).toHaveLength(1);
-    expect(Math.hypot(hz[0].x - HILL.x, hz[0].z - HILL.z)).toBeLessThan(1e-6);
-    expect(hz[0].color).toBe(LIGHT.red);
+    expect(hz).toHaveLength(2);
+    expect(hz.every((l) => l.color === LIGHT.red)).toBe(true);
+    expect(hz.some((l) => Math.hypot(l.x - HILL.x, l.z - HILL.z) < 1e-6)).toBe(true);
+    const tower = world.obstacles.find((o) => o.kind === 'tower')!;
+    const top = hz.find((l) => Math.hypot(l.x - tower.x, l.z - tower.z) < 1e-6)!;
+    expect(top.y).toBeGreaterThan(tower.base + tower.height - 1);
+  });
+
+  it('gives the same lights every time', () => {
     expect(nightLights(world)).toEqual(lights);
   });
 });
