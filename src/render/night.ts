@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../world/rng';
+import { horizonColour } from './atmosphere';
 import { LIGHT, NightLight } from '../world/nightLights';
 
 export const MOON_DIR = new THREE.Vector3(0.45, 0.42, -0.79).normalize();
@@ -13,8 +14,8 @@ export const NIGHT = {
   hemi: 0.5,
   moon: 0x9fb4e0,
   moonPower: 0.45,
-  cloud: 0x1a2233,
-  cloudGlow: 0x0b0f18,
+  /** Tint of the clouds' sunlit texture at night. */
+  cloud: 0x46526e,
   /** Multiplier for colours that ignore lighting (the target beacon), so paint does not shine like a lamp. */
   unlit: 0.35,
   blobShadow: 0.12,
@@ -28,7 +29,7 @@ const SKY_R = 4000;
 export function buildNightSky(moonDir: THREE.Vector3): THREE.Mesh {
   const geo = new THREE.SphereGeometry(SKY_R, 32, 16);
   const colors: number[] = [];
-  const top = new THREE.Color(NIGHT.zenith), horizon = new THREE.Color(NIGHT.horizon), glow = new THREE.Color(0x3a4c78);
+  const top = new THREE.Color(NIGHT.zenith), horizon = horizonColour(new THREE.Color(NIGHT.horizon)), glow = new THREE.Color(0x3a4c78);
   const c = new THREE.Color(), v = new THREE.Vector3();
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {

@@ -229,3 +229,61 @@ Production bundle: 800 kB JS, 223.1 kB gzip (+2.3 kB gzip).
 
 Per shot: vista 141 draws / 192.5 k triangles (the boulders add 8 k), airport 71 / 188 k, heli 101 / 175 k.
 Production bundle: 803 kB JS, 224.2 kB gzip (+1.1 kB gzip). New close-up: `17-rocks.png`.
+
+## Stage 6 — lighting and atmosphere (`stage6/`)
+
+- **Height fog with aerial perspective** (`src/render/atmosphere.ts`): three's fog chunks are replaced once at start-up,
+  so every fogged material gets it. The haze is densest near the valley floor and thins exponentially with altitude,
+  integrated along the sight line: from the air the land below stays clear while ridges further away separate into
+  layers. Its colour cools from the warm haze towards blue with distance. The scene's linear fog now starts at 1.5 km
+  and only dissolves the far edge of the world.
+- **Sky**: the horizon colour is exactly the far haze colour (day and night domes, and the background), so fogged land
+  meets the sky without a seam; a thin warm band above the horizon; a sun disc with a soft halo.
+- **Clouds**: soft cumulus puffs that always face the camera (one quad each, turned in the vertex shader; the whole
+  sky is one draw), shaded light on top and grey-warm underneath, tinted moonlit grey at night. They replace the
+  flattened icospheres (about 8 k triangles fewer).
+- **Shadow**: softened edges (`shadow.radius = 3`).
+- New shots: `18-sun.png` (into the sun), `19-vista-night.png`.
+
+| | Stage 5 | Stage 6, cruise 1000 ft | Stage 6, low pass |
+| --- | ---: | ---: | ---: |
+| FPS / worst frame | 60 / 17.7 ms | 60 / 17.7 ms | 60 / 17.7 ms |
+| `renderer.render` CPU, median / p95 | 3.2 / 3.9 ms | 2.3 / 3.0 ms | 2.1 / 4.6 ms |
+| Draw calls | 126 | 126 | 26 |
+| Triangles | 146 k | 139 k | 126 k |
+| Programs, everything compiled | 37 | 38 | 38 |
+| Textures | 8 | 10 (sun, cloud puff: 128² each) | 10 |
+
+Production bundle: 807 kB JS, 225.4 kB gzip (+1.2 kB gzip).
+
+## Before and after (stage 6 against the original baseline)
+
+Same camera, light and machine (Apple M4, Chrome, 1280×720 at 1×).
+
+| Shot | Before: draws / triangles | After: draws / triangles |
+| --- | ---: | ---: |
+| heli | 134 / 85.6 k | 101 / 168.6 k (grass round the parked helicopter) |
+| heavy | 155 / 86.7 k | 108 / 173.5 k |
+| chase | 133 / 82.0 k | 95 / 143.6 k |
+| airport | 108 / 84.3 k | 71 / 181.5 k (grass) |
+| lake | 121 / 78.0 k | 107 / 131.2 k |
+| farm | 77 / 72.9 k | 62 / 139.9 k |
+| vista | 154 / 93.6 k | 141 / 185.8 k |
+| cockpit | 155 / 84.2 k | 143 / 145.6 k |
+| airport, night | 85 / 83.7 k | 71 / 174.0 k |
+
+| In flight | Before | After |
+| --- | ---: | ---: |
+| FPS / worst frame | 60 / 17.8 ms | 60 / 17.7 ms |
+| `renderer.render` CPU, median / p95 | 2.2 / 2.9 ms | 2.3 / 3.0 ms (4.6 ms p95 skimming the grass) |
+| Draw calls | 163 | 126 |
+| Triangles | 81 k | 139 k |
+| Programs, everything compiled | 29 (light helicopter only) | 38 (both helicopters) |
+| Textures | 3 | 10 (ground map ~5.6 MB GPU; the rest ≤ 256 kB each) |
+| JS heap (noisy) | 29 MB | 36 MB |
+| Production bundle, gzip | 211 kB | 225.4 kB |
+| Downloaded assets | none | none |
+
+Draw calls are down in every shot. Triangles are up 1.6–2.2×, within the ~2× / 190 k budget in every shot; the
+budget's mobile cost has not been measured on a real device yet. Collision, physics and gameplay are unchanged apart
+from decision D2 (the new airport buildings are solid); all tests pass.

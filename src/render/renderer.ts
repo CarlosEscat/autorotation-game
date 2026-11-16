@@ -8,6 +8,7 @@ import { FireFx } from './fireFx';
 import { Fire } from '../game/fire';
 import { Gate, Pad, gateY } from '../game/levels';
 import { StatsOverlay } from './statsOverlay';
+import { horizonColour, installHeightFog } from './atmosphere';
 import { MOON_DIR, NIGHT, buildNightSky, buildWorldLights } from './night';
 import { LIGHT, nightLights } from '../world/nightLights';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon } from './worldMesh';
@@ -18,7 +19,8 @@ import { pavedPatches } from './airportLayout';
 export type CameraMode = 'cockpit' | 'chase';
 
 const HAZE = 0xe6dcc6;
-const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3, environment: 0.9 };
+const FOG_NEAR = 1500, FOG_FAR = 4600;
+const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xffffff, beacon: 0xffe14d, blobShadow: 0.3, environment: 0.9 };
 /** Exposure under tone mapping, tuned so the scene is as bright as it was without it. */
 const TONE_EXPOSURE = 1.0;
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
@@ -67,7 +69,7 @@ export class GameRenderer {
   private sky: THREE.Mesh;
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
-  private clouds: THREE.MeshLambertMaterial;
+  private clouds: THREE.MeshBasicMaterial;
   private nightSky: THREE.Mesh | null = null;
   private worldLights: ReturnType<typeof buildWorldLights> | null = null;
   private towerLight: THREE.Object3D | undefined;
@@ -117,8 +119,10 @@ export class GameRenderer {
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
     // Low, warm late-afternoon sun with a soft sky fill and warm haze.
-    this.scene.fog = new THREE.Fog(HAZE, 600, 3400);
-    this.scene.background = new THREE.Color(HAZE);
+    // Height fog (atmosphere.ts) does the near haze; this linear range only dissolves the far edge of the world.
+    installHeightFog();
+    this.scene.fog = new THREE.Fog(HAZE, FOG_NEAR, FOG_FAR);
+    this.scene.background = horizonColour(new THREE.Color(HAZE));
     this.hemi = new THREE.HemisphereLight(DAY.hemiSky, DAY.hemiGround, DAY.hemi);
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(DAY.sun, DAY.sunPower);
@@ -139,12 +143,14 @@ export class GameRenderer {
     this.sun.shadow.mapSize.set(1024, 1024);
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.04;
+    // Softened edges: a helicopter-sized object under a low sun throws a soft-edged shadow, not a cut-out.
+    this.sun.shadow.radius = 3;
 
-    this.sky = buildSky(SUN_DIR);
+    this.sky = buildSky(SUN_DIR, horizonColour(new THREE.Color(HAZE)));
     const ground = [buildTerrain(world), buildRunways(world), buildWater(world)];
     for (const g of ground) g.traverse((o) => (o.receiveShadow = true));
     const clouds = buildClouds();
-    this.clouds = (clouds.children[0] as THREE.Mesh).material as THREE.MeshLambertMaterial;
+    this.clouds = (clouds.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.scene.add(this.sky, clouds, ...ground, buildDistantMountains(world), buildObstacles(world));
     this.towerLight = this.scene.getObjectByName('towerLight');
     this.runway = world.areas.find((a) => a.id === 'runway');
@@ -243,7 +249,7 @@ export class GameRenderer {
     this.sky.visible = !on;
     const horizon = on ? NIGHT.horizon : HAZE;
     this.scene.fog!.color.setHex(horizon);
-    (this.scene.background as THREE.Color).setHex(horizon);
+    (this.scene.background as THREE.Color).copy(horizonColour(new THREE.Color(horizon)));
     this.hemi.color.setHex(on ? NIGHT.hemiSky : DAY.hemiSky);
     this.hemi.groundColor.setHex(on ? NIGHT.hemiGround : DAY.hemiGround);
     this.hemi.intensity = on ? NIGHT.hemi : DAY.hemi;
@@ -253,7 +259,6 @@ export class GameRenderer {
     this.sun.castShadow = !on;
     this.lightDir = on ? MOON_DIR : SUN_DIR;
     this.clouds.color.setHex(on ? NIGHT.cloud : DAY.cloud);
-    this.clouds.emissive.setHex(on ? NIGHT.cloudGlow : DAY.cloudGlow);
     (this.shadow.material as THREE.MeshBasicMaterial).opacity = on ? NIGHT.blobShadow : DAY.blobShadow;
     this.beacon.traverse((o) => ((o as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined)?.color.setHex(DAY.beacon).multiplyScalar(on ? NIGHT.unlit : 1));
   }

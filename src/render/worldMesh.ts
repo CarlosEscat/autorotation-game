@@ -269,42 +269,132 @@ export function buildGate(radius: number): THREE.Mesh {
   return new THREE.Mesh(new THREE.TorusGeometry(radius, 1.3, 5, 24), new THREE.MeshBasicMaterial({ color: 0xffffff }));
 }
 
-/** Vertical gradient from warm haze to blue, with a soft glow around the sun. */
-export function buildSky(sunDir: THREE.Vector3): THREE.Mesh {
-  const geo = new THREE.SphereGeometry(4000, 32, 16);
+/**
+ * The day sky: from the horizon colour of the far haze (so fogged ground meets it without a seam) up to blue, a
+ * warm glow round the sun, and the sun itself as a soft disc. The renderer keeps it centred on the camera.
+ */
+export function buildSky(sunDir: THREE.Vector3, horizon: THREE.Color): THREE.Mesh {
+  const R = 4000;
+  const geo = new THREE.SphereGeometry(R, 48, 24);
   const colors: number[] = [];
-  const top = new THREE.Color(0x4f86cc), horizon = new THREE.Color(0xe6dcc6), glow = new THREE.Color(0xffe2b0);
+  const top = new THREE.Color(0x4a82cc), glow = new THREE.Color(0xffe0ac), band = new THREE.Color(0xf2dcc0);
   const c = new THREE.Color();
   const v = new THREE.Vector3();
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++) {
-    const t = Math.max(0, p.getY(i) / 4000);
-    c.copy(horizon).lerp(top, Math.pow(t, 0.6));
+    const t = Math.max(0, p.getY(i) / R);
+    c.copy(horizon).lerp(top, Math.pow(t, 0.55));
+    // A thin warm band just above the horizon, strongest towards the sun.
     const toSun = Math.max(0, v.fromBufferAttribute(p, i).normalize().dot(sunDir));
-    c.lerp(glow, 0.75 * Math.pow(toSun, 6));
+    c.lerp(band, 0.35 * (1 - THREE.MathUtils.smoothstep(t, 0, 0.12)) * (0.4 + 0.6 * toSun));
+    c.lerp(glow, 0.7 * Math.pow(toSun, 7));
     colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  return new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  const sky = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false }));
+  const sun = new THREE.Mesh(
+    new THREE.PlaneGeometry(900, 900),
+    new THREE.MeshBasicMaterial({ map: sunTexture(), transparent: true, blending: THREE.AdditiveBlending, fog: false, depthWrite: false }),
+  );
+  sun.position.copy(sunDir).multiplyScalar(R * 0.95);
+  sun.lookAt(0, 0, 0);
+  sky.add(sun);
+  return sky;
 }
 
+/** A bright core with a wide, faint halo, drawn additively over the sky. */
+function sunTexture(): THREE.CanvasTexture {
+  const S = 128, canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d')!;
+  const g = ctx.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  g.addColorStop(0, 'rgba(255,250,235,1)');
+  g.addColorStop(0.08, 'rgba(255,246,220,1)');
+  g.addColorStop(0.11, 'rgba(255,230,180,0.45)');
+  g.addColorStop(0.35, 'rgba(255,215,160,0.12)');
+  g.addColorStop(1, 'rgba(255,210,150,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** One soft cumulus puff: a cluster of round blobs, sunlit on top and grey-warm underneath, with soft edges. */
+function puffTexture(): THREE.CanvasTexture {
+  const S = 128, canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d')!;
+  const rnd = mulberry32(21);
+  for (let k = 0; k < 9; k++) {
+    const x = S * (0.3 + rnd() * 0.4), y = S * (0.42 + rnd() * 0.2), r = S * (0.14 + rnd() * 0.14);
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(0.6, 'rgba(255,255,255,0.55)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Shade: keep the alpha, darken towards the bottom (the underside facing away from the sun).
+  ctx.globalCompositeOperation = 'source-atop';
+  const shade = ctx.createLinearGradient(0, S * 0.25, 0, S * 0.8);
+  shade.addColorStop(0, 'rgba(255,252,244,1)');
+  shade.addColorStop(1, 'rgba(176,172,170,1)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * Clouds as soft puffs that always face the camera: every puff is one quad, turned towards the eye in the vertex
+ * shader, so the whole sky is one draw. The material's colour tints them (the renderer darkens it at night).
+ */
 export function buildClouds(): THREE.Group {
   const g = new THREE.Group();
   const rnd = mulberry32(11);
-  // Flat, soft-edged puffs: sunlit tops, warm grey undersides rather than a uniform glow.
-  const mat = new THREE.MeshLambertMaterial({ color: 0xf4eee2, emissive: 0x9a9288 });
-  // The whole sky's worth of puffs is one geometry: one draw instead of a hundred.
-  const puffs: THREE.BufferGeometry[] = [];
+  const centres: number[] = [], corners: number[] = [], sizes: number[] = [], uvs: number[] = [], idx: number[] = [];
+  let n = 0;
   for (let i = 0; i < 26; i++) {
-    const cloud: THREE.BufferGeometry[] = [];
-    for (let k = 0; k < 4; k++) {
-      const puff = new THREE.IcosahedronGeometry(30 + rnd() * 30, 1).scale(1.3, 0.28, 1);
-      cloud.push(puff.translate(k * 40 - 60, rnd() * 6, rnd() * 30));
-    }
     const a = rnd() * Math.PI * 2, r = 600 + rnd() * 1800;
-    const x = Math.cos(a) * r, y = 650 + rnd() * 300, z = Math.sin(a) * r;
-    for (const puff of cloud) puffs.push(puff.translate(x, y, z));
+    const cx = Math.cos(a) * r, cy = 650 + rnd() * 300, cz = Math.sin(a) * r;
+    const puffs = 5 + Math.floor(rnd() * 4);
+    for (let k = 0; k < puffs; k++) {
+      const t = puffs > 1 ? k / (puffs - 1) - 0.5 : 0;
+      const x = cx + t * 170 + (rnd() - 0.5) * 30, y = cy + (rnd() - 0.3) * 18 + (0.5 - Math.abs(t)) * 22, z = cz + (rnd() - 0.5) * 60;
+      const size = (38 + rnd() * 34) * (1.1 - Math.abs(t) * 0.6);
+      for (const [u, v] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        centres.push(x, y, z);
+        corners.push(u * 1.5, v * 0.85);
+        sizes.push(size);
+        uvs.push((u + 1) / 2, (v + 1) / 2);
+      }
+      idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+      n += 4;
+    }
   }
-  g.add(new THREE.Mesh(mergeGeometries(puffs)!, mat));
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(centres, 3));
+  geo.setAttribute('puffCorner', new THREE.Float32BufferAttribute(corners, 2));
+  geo.setAttribute('puffSize', new THREE.Float32BufferAttribute(sizes, 1));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(idx);
+  const mat = new THREE.MeshBasicMaterial({ map: puffTexture(), transparent: true, depthWrite: false });
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'attribute vec2 puffCorner;\nattribute float puffSize;\n' + shader.vertexShader.replace(
+      '#include <project_vertex>',
+      `vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+      mvPosition.xy += puffCorner * puffSize;
+      gl_Position = projectionMatrix * mvPosition;`,
+    );
+  };
+  mat.customProgramCacheKey = () => 'cloud-puff';
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.frustumCulled = false; // the bound is of the puff centres only
+  mesh.renderOrder = -1; // behind everything transparent nearer the eye
+  g.add(mesh);
   return g;
 }
