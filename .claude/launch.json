@@ -26,6 +26,20 @@
         "--strictPort"
       ],
       "port": 4173
+    },
+    {
+      "name": "preview-lan",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "preview",
+        "--",
+        "--host",
+        "--port",
+        "4174",
+        "--strictPort"
+      ],
+      "port": 4174
     }
   ]
 }

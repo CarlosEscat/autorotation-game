@@ -287,3 +287,10 @@ Same camera, light and machine (Apple M4, Chrome, 1280×720 at 1×).
 Draw calls are down in every shot. Triangles are up 1.6–2.2×, within the ~2× / 190 k budget in every shot; the
 budget's mobile cost has not been measured on a real device yet. Collision, physics and gameplay are unchanged apart
 from decision D2 (the new airport buildings are solid); all tests pass.
+
+## Phone check (2026-11-17)
+
+Production build served on the local network (`preview-lan` in `.claude/launch.json`), opened on the owner's phone
+with `?stats`; the readout's last line shows whether grass and the real-time shadow are on. Result as reported:
+**holds 30 FPS or more**. Exact figures, the phone model and whether the game dropped any quality step were not
+recorded; repeat the check with those if mobile performance is revisited.

@@ -428,7 +428,7 @@ export class GameRenderer {
     this.nightSky?.position.set(s.pos.x, 0, s.pos.z);
     if (this.night) this.animateNight(s);
     this.renderer.render(this.scene, this.camera);
-    this.stats?.frame(this.renderer);
+    this.stats?.frame(this.renderer, `grass ${this.grass.enabled ? 'on' : 'off'}  shadow ${this.shadows ? 'real' : 'blob'}`);
   }
 
   /** Flashing and direction-dependent lights. Flashes follow simulation time, so a paused game shows them frozen. */

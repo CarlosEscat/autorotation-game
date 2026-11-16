@@ -21,8 +21,8 @@ export class StatsOverlay {
     container.appendChild(this.el);
   }
 
-  /** Call once per drawn frame, after rendering. */
-  frame(renderer: THREE.WebGLRenderer) {
+  /** Call once per drawn frame, after rendering. `quality` describes what is currently switched on. */
+  frame(renderer: THREE.WebGLRenderer, quality = '') {
     const now = performance.now();
     this.worst = Math.max(this.worst, now - this.last);
     this.last = now;
@@ -33,7 +33,8 @@ export class StatsOverlay {
     this.el.textContent =
       `${fps.toFixed(0)} fps  worst ${this.worst.toFixed(0)} ms\n` +
       `${i.render.calls} calls  ${(i.render.triangles / 1000).toFixed(0)}k tris\n` +
-      `${i.memory.geometries} geo  ${i.memory.textures} tex  ${i.programs?.length ?? 0} prog  @${renderer.getPixelRatio()}x`;
+      `${i.memory.geometries} geo  ${i.memory.textures} tex  ${i.programs?.length ?? 0} prog  @${renderer.getPixelRatio()}x` +
+      (quality ? `\n${quality}` : '');
     this.frames = 0;
     this.worst = 0;
     this.since = now;
