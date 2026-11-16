@@ -3,11 +3,11 @@ import { HeliLights, buildHeliLights } from './heliLights';
 import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
 import { buildHeavyExterior } from './heavyModel';
 import { PALETTE, lambert, paint } from './materials';
-import { V, bladeGeometry, mergeByMaterial, outline, roundBox, slab, tube } from './modelKit';
+import { V, bladeGeometry, mergeByMaterial, outline, roundBox, slab, tube, withWhite } from './modelKit';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** Matte, smooth-shaded material for the cockpit interior. */
-export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => lambert(color, { flatShading: false, ...extra });
+export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => lambert(color, extra);
 
 export interface HelicopterModel {
   root: THREE.Group;
@@ -38,9 +38,9 @@ export const HELI = {
   metal: paint(PALETTE.metal, 0.35, 0.8, { vertexColors: true }),
   tyre: paint(PALETTE.tyre, 0.85, 0, { vertexColors: true }),
   glass: paint(0x50758c, 0.04, 0.55, { vertexColors: true }),
-  // Parts that turn are not merged and carry no baked occlusion.
-  blade: paint(PALETTE.blade, 0.5, 0.25),
-  bladeTip: paint(PALETTE.paintWhite, 0.4, 0.05),
+  // Parts that turn are not merged; they carry plain white vertex colours (no occlusion) so they share the paint's shader.
+  blade: paint(PALETTE.blade, 0.5, 0.25, { vertexColors: true }),
+  bladeTip: paint(PALETTE.paintWhite, 0.4, 0.05, { vertexColors: true }),
 };
 
 /** The light trainer's cabin: a teardrop along Z, nose forward (-Z), radius per station. */
@@ -69,7 +69,7 @@ export function tailRotorBlades(span: number, chord: number, thickness: number, 
   const geos = [one().rotateZ(Math.PI / 2)];
   if (crossed) geos.push(geos[0].clone().rotateX(Math.PI / 2));
   const hub = new THREE.CylinderGeometry(0.07, 0.07, 0.08, 12).rotateZ(Math.PI / 2);
-  return new THREE.Mesh(mergeGeometries([...geos, hub].map(bare))!, material);
+  return new THREE.Mesh(withWhite(mergeGeometries([...geos, hub].map(bare))!), material);
 }
 
 /** The light trainer's airframe; returns the group and its tail rotor. */
@@ -163,8 +163,8 @@ function buildRotor(A: AircraftSpec) {
     blades.push(bare(new THREE.CylinderGeometry(0.05, 0.06, 0.3, 10).rotateZ(Math.PI / 2).translate(0.15, 0, 0).rotateY(a)));
     tips.push(bare(bladeGeometry(A.rotorRadius - tipLen, tipLen, A.bladeChord * 0.82, A.bladeChord * 0.78, 0.045).rotateY(a)));
   }
-  rotor.add(new THREE.Mesh(mergeGeometries(blades)!, HELI.blade));
-  rotor.add(new THREE.Mesh(mergeGeometries(tips)!, HELI.bladeTip));
+  rotor.add(new THREE.Mesh(withWhite(mergeGeometries(blades)!), HELI.blade));
+  rotor.add(new THREE.Mesh(withWhite(mergeGeometries(tips)!), HELI.bladeTip));
   const rotorDisc = new THREE.Mesh(
     new THREE.CircleGeometry(A.rotorRadius, 32).rotateX(-Math.PI / 2),
     new THREE.MeshBasicMaterial({ color: 0x3a3a42, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false }),

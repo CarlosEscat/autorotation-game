@@ -202,3 +202,32 @@ export function mergeByMaterial(group: THREE.Group, opts: MergeOptions = {}): TH
   }
   return out;
 }
+
+/**
+ * `geo` plus a copy facing the other way (winding and normals flipped), non-indexed: a thin surface seen from both
+ * sides with an ordinary single-sided material, so it shares that material's shader instead of needing a
+ * double-sided variant.
+ */
+export function bothFaces(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  const front = geo.index ? geo.toNonIndexed() : geo.clone();
+  if (!front.attributes.normal) front.computeVertexNormals();
+  const back = front.clone();
+  for (const name of Object.keys(back.attributes)) {
+    const a = back.attributes[name] as THREE.BufferAttribute, n = a.itemSize;
+    for (let t = 0; t < a.count; t += 3) {
+      for (let k = 0; k < n; k++) {
+        const v1 = a.array[(t + 1) * n + k];
+        (a.array as Float32Array)[(t + 1) * n + k] = a.array[(t + 2) * n + k];
+        (a.array as Float32Array)[(t + 2) * n + k] = v1;
+      }
+    }
+    if (name === 'normal') for (let i = 0; i < a.array.length; i++) (a.array as Float32Array)[i] *= -1;
+  }
+  return mergeGeometries([front, back])!;
+}
+
+/** Adds a white colour attribute, so a part can share a vertex-coloured material without changing its colour. */
+export function withWhite(geo: THREE.BufferGeometry): THREE.BufferGeometry {
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(geo.attributes.position.count * 3).fill(1), 3));
+  return geo;
+}

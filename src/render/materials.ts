@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { withSurfaceDetail } from './surfaceDetail';
 
 /**
  * The art direction in one place: every colour a model or the world is painted with, and the factories that turn
@@ -44,20 +45,23 @@ export const PALETTE = {
   windsock: 0xf2692a,
 } as const;
 
-/**
- * World surfaces are still faceted (stage 2 smooths them); the helicopters are not.
- * Flip to compare the two looks side by side.
- */
-export const FLAT_WORLD = true;
 
 const cache = new Map<string, THREE.Material>();
 const keyOf = (kind: string, color: number, extra: object) => `${kind}:${color}:${JSON.stringify(extra)}`;
 
-/** Matte, cheap: everything in the world. */
-export function lambert(color: number, extra: THREE.MeshLambertMaterialParameters = {}): THREE.MeshLambertMaterial {
+/**
+ * Matte, cheap, smooth-shaded: everything in the world. `detail` adds the shared world-space surface variation
+ * (see surfaceDetail.ts) at that strength; leave it out for surfaces that should stay clean (the cockpit).
+ */
+export function lambert(color: number, extra: THREE.MeshLambertMaterialParameters & { detail?: number } = {}): THREE.MeshLambertMaterial {
   const key = keyOf('lambert', color, extra);
   let m = cache.get(key) as THREE.MeshLambertMaterial | undefined;
-  if (!m) cache.set(key, (m = new THREE.MeshLambertMaterial({ color, flatShading: FLAT_WORLD, ...extra })));
+  if (!m) {
+    const { detail, ...params } = extra;
+    m = new THREE.MeshLambertMaterial({ color, ...params });
+    if (detail !== undefined) withSurfaceDetail(m, detail);
+    cache.set(key, m);
+  }
   return m;
 }
 

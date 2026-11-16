@@ -147,11 +147,13 @@ function plantGeometries() {
  * The material all plants share: smooth Lambert, vertex and instance colours, and a sway that grows with the
  * square of the height in the plant's own space (the trunk foot stays put), phased by where the plant stands.
  */
-function plantMaterial(sway: number, side: THREE.Side = THREE.FrontSide): THREE.MeshLambertMaterial {
-  const m = new THREE.MeshLambertMaterial({ vertexColors: true, side });
+function plantMaterial(sway: number): THREE.MeshLambertMaterial {
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.windTime = windTime;
-    shader.vertexShader = 'uniform float windTime;\n' + shader.vertexShader.replace(
+    // A uniform, not text in the shader: trees, bushes and grass share one compiled program.
+    shader.uniforms.swayAmount = { value: sway };
+    shader.vertexShader = 'uniform float windTime;\nuniform float swayAmount;\n' + shader.vertexShader.replace(
       '#include <begin_vertex>',
       `#include <begin_vertex>
       #ifdef USE_INSTANCING
@@ -161,11 +163,11 @@ function plantMaterial(sway: number, side: THREE.Side = THREE.FrontSide): THREE.
       #endif
       float bendH = position.y * position.y;
       float phase = plantAt.x * 0.071 + plantAt.y * 0.053;
-      transformed.x += sin(windTime * 1.3 + phase) * ${sway.toFixed(4)} * bendH;
-      transformed.z += cos(windTime * 1.05 + phase * 1.3) * ${(sway * 0.7).toFixed(4)} * bendH;`,
+      transformed.x += sin(windTime * 1.3 + phase) * swayAmount * bendH;
+      transformed.z += cos(windTime * 1.05 + phase * 1.3) * swayAmount * 0.7 * bendH;`,
     );
   };
-  m.customProgramCacheKey = () => `plant:${sway}:${side}`;
+  m.customProgramCacheKey = () => 'plant';
   return m;
 }
 

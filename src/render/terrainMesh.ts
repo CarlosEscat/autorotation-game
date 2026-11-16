@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { LAKE, LandingArea, World } from '../world/world';
-import { fbm, mulberry32, valueNoise } from '../world/rng';
+import { fbm, valueNoise } from '../world/rng';
 import { PavedPatch, pavedPatches } from './airportLayout';
+import { withSurfaceDetail } from './surfaceDetail';
 
 /**
  * The ground: a smooth-shaded mesh on exactly the collision surface, painted with a ground map baked once at
@@ -224,57 +225,9 @@ export function bakeGroundMapInBackground(world: World, size: number, done: (tex
   setTimeout(slice, 0);
 }
 
-/** Soft tileable grey noise for close-range surface detail. */
-function detailTexture(): THREE.DataTexture {
-  const N = 128, rnd = mulberry32(77);
-  const base = new Float32Array(N * N).map(() => rnd());
-  const blur = (src: Float32Array, r: number) => {
-    const out = new Float32Array(N * N);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      let s = 0, n = 0;
-      for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) (s += src[((j + dj + N) % N) * N + ((i + di + N) % N)]), n++;
-      out[j * N + i] = s / n;
-    }
-    return out;
-  };
-  const fine = blur(base, 1), coarse = blur(blur(base, 3), 3);
-  const v = fine.map((f, k) => 0.55 * f + 0.45 * coarse[k]);
-  let lo = Infinity, hi = -Infinity;
-  for (const x of v) (lo = Math.min(lo, x)), (hi = Math.max(hi, x));
-  const data = new Uint8Array(N * N * 4);
-  v.forEach((x, k) => {
-    const b = Math.round(((x - lo) / (hi - lo)) * 255);
-    data.set([b, b, b, 255], k * 4);
-  });
-  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.magFilter = THREE.LinearFilter;
-  tex.generateMipmaps = true;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-/**
- * Lambert material reading the ground map, with two scales of detail noise multiplied in.
- * The noise averages out to neutral in the mipmaps, so it fades by itself with distance.
- */
-function groundMaterial(map: THREE.Texture, worldSize: number): THREE.MeshLambertMaterial {
-  const mat = new THREE.MeshLambertMaterial({ map });
-  const detail = detailTexture();
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.detailMap = { value: detail };
-    shader.uniforms.detailScale = { value: new THREE.Vector2(worldSize / 9, worldSize / 41) };
-    shader.fragmentShader = 'uniform sampler2D detailMap;\nuniform vec2 detailScale;\n' + shader.fragmentShader.replace(
-      '#include <map_fragment>',
-      `#include <map_fragment>
-      float d1 = texture2D(detailMap, vMapUv * detailScale.x).r;
-      float d2 = texture2D(detailMap, vMapUv * detailScale.y).r;
-      diffuseColor.rgb *= 0.86 + 0.28 * (0.55 * d1 + 0.45 * d2);`,
-    );
-  };
-  mat.customProgramCacheKey = () => 'ground-detail';
-  return mat;
+/** Lambert material reading the ground map, with the shared surface detail on top. */
+function groundMaterial(map: THREE.Texture): THREE.MeshLambertMaterial {
+  return withSurfaceDetail(new THREE.MeshLambertMaterial({ map }), 1);
 }
 
 const ground: { current: THREE.DataTexture | null; worldSize: number } = { current: null, worldSize: 0 };
@@ -323,7 +276,7 @@ export function buildTerrain(world: World): THREE.Mesh {
   geo.setIndex(idx);
   geo.computeVertexNormals();
   // A quick coarse map first; the full one is baked in the background and swapped in, usually while the menu is up.
-  const material = groundMaterial(bakeGroundMap(world, 128), world.size);
+  const material = groundMaterial(bakeGroundMap(world, 128));
   ground.current = material.map as THREE.DataTexture;
   bakeGroundMapInBackground(world, groundMapSize(), (tex) => {
     material.map?.dispose();
@@ -403,7 +356,7 @@ export function buildDistantMountains(world: World): THREE.Mesh {
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  const m = new THREE.Mesh(geo, withSurfaceDetail(new THREE.MeshLambertMaterial({ vertexColors: true }), 0.6));
   m.matrixAutoUpdate = false;
   return m;
 }

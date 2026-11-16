@@ -1,6 +1,6 @@
 # Stylized realism: analysis and staged plan
 
-Status: stages 0–4 implemented on branch `visual/stylized-realism` (results in the baseline README); stages 5–6 proposed. D1 decided: (a), collision unchanged. D2 decided: airport buildings are solid.
+Status: stages 0–5 implemented on branch `visual/stylized-realism` (results in the baseline README); stage 6 proposed. D1 decided: (a), collision unchanged. D2 decided: airport buildings are solid.
 Baseline shots and numbers: [docs/visual-baseline/README.md](../../visual-baseline/README.md).
 
 Goal: move from the current N64 / flat-shaded low-poly look to smooth, colourful, atmospheric stylized realism

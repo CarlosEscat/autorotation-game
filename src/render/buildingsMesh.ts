@@ -11,20 +11,20 @@ import { mergeByMaterial, roundBox } from './modelKit';
  */
 
 const M = {
-  wall: lambert(0xd9d6cc, { vertexColors: true, flatShading: false }),
-  hangarWall: lambert(0xb7bec2, { vertexColors: true, flatShading: false }),
-  roofMetal: lambert(0x8d959b, { vertexColors: true, flatShading: false }),
-  door: lambert(0x6b7780, { vertexColors: true, flatShading: false }),
-  rib: lambert(0x58626a, { vertexColors: true, flatShading: false }),
-  glass: lambert(0x34505f, { vertexColors: true, flatShading: false }),
-  trim: lambert(0x9a978f, { vertexColors: true, flatShading: false }),
-  concrete: lambert(PALETTE.towerShaft, { vertexColors: true, flatShading: false }),
-  white: lambert(PALETTE.towerTrim, { vertexColors: true, flatShading: false }),
-  red: lambert(0xb5432f, { vertexColors: true, flatShading: false }),
-  barn: lambert(PALETTE.barnWall, { vertexColors: true, flatShading: false }),
-  house: lambert(PALETTE.houseWall, { vertexColors: true, flatShading: false }),
-  roof: lambert(PALETTE.roof, { vertexColors: true, flatShading: false }),
-  dark: lambert(0x3b3936, { vertexColors: true, flatShading: false }),
+  wall: lambert(0xd9d6cc, { vertexColors: true, detail: 1 }),
+  hangarWall: lambert(0xb7bec2, { vertexColors: true, detail: 1 }),
+  roofMetal: lambert(0x8d959b, { vertexColors: true, detail: 1 }),
+  door: lambert(0x6b7780, { vertexColors: true, detail: 1 }),
+  rib: lambert(0x58626a, { vertexColors: true, detail: 1 }),
+  glass: lambert(0x34505f, { vertexColors: true, detail: 0.25 }),
+  trim: lambert(0x9a978f, { vertexColors: true, detail: 1 }),
+  concrete: lambert(PALETTE.towerShaft, { vertexColors: true, detail: 1 }),
+  white: lambert(PALETTE.towerTrim, { vertexColors: true, detail: 1 }),
+  red: lambert(0xb5432f, { vertexColors: true, detail: 1 }),
+  barn: lambert(PALETTE.barnWall, { vertexColors: true, detail: 1 }),
+  house: lambert(PALETTE.houseWall, { vertexColors: true, detail: 1 }),
+  roof: lambert(PALETTE.roof, { vertexColors: true, detail: 1 }),
+  dark: lambert(0x3b3936, { vertexColors: true, detail: 1 }),
 };
 
 /** Below-ground depth of every wall, so a building on a gentle slope stays seated. */

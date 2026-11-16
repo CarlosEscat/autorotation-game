@@ -1,14 +1,43 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { roundBox } from './modelKit';
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { bothFaces, roundBox } from './modelKit';
 import { LandingArea, World } from '../world/world';
 import { mulberry32 } from '../world/rng';
 import { PALETTE, lambert } from './materials';
 import { buildBuildings } from './buildingsMesh';
 import { buildForests } from './vegetation';
+import { withSurfaceDetail } from './surfaceDetail';
 
 // --- Obstacles ----------------------------------------------------------------------------
 // Trees and undergrowth live in vegetation.ts, buildings in buildingsMesh.ts; boulders are drawn here.
+
+/**
+ * A weathered boulder: a sphere pushed in and out by layered waves, its base flattened where it sits in the ground,
+ * smooth-shaded, darker at the foot and with a little lichen green on the faces that look up.
+ */
+function boulder(): THREE.BufferGeometry {
+  const g = new THREE.IcosahedronGeometry(1, 2);
+  g.deleteAttribute('normal');
+  g.deleteAttribute('uv');
+  const p = g.attributes.position, v = new THREE.Vector3();
+  for (let i = 0; i < p.count; i++) {
+    v.fromBufferAttribute(p, i);
+    const bump = 0.16 * Math.sin(v.x * 3.1 + 1.3) * Math.sin(v.y * 2.7 + 0.4) * Math.sin(v.z * 3.3 + 2.1) + 0.07 * Math.sin(v.x * 7.3 + v.z * 5.1);
+    v.multiplyScalar(1 + bump);
+    if (v.y < -0.35) v.y = -0.35 + (v.y + 0.35) * 0.25;
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  const smooth = mergeVertices(g);
+  smooth.computeVertexNormals();
+  const n = smooth.attributes.normal, pos = smooth.attributes.position, col = new Float32Array(pos.count * 3);
+  const foot = new THREE.Color(0x67625a), top = new THREE.Color(0xa29b8d), lichen = new THREE.Color(0x8b9566), c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    c.copy(foot).lerp(top, THREE.MathUtils.clamp((pos.getY(i) + 0.4) / 1.3, 0, 1)).lerp(lichen, 0.4 * Math.max(0, n.getY(i) - 0.5) * 2);
+    c.toArray(col, i * 3);
+  }
+  smooth.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return smooth;
+}
 
 export function buildObstacles(world: World): THREE.Group {
   const group = new THREE.Group();
@@ -21,13 +50,12 @@ export function buildObstacles(world: World): THREE.Group {
   const rnd = mulberry32(8);
   group.add(buildForests(world));
 
-  const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-  const rockMesh = new THREE.InstancedMesh(rockGeo, lambert(0xffffff), rocks.length);
+  const rockMesh = new THREE.InstancedMesh(boulder(), lambert(0xffffff, { vertexColors: true, detail: 1.2 }), rocks.length);
   rocks.forEach((r, i) => {
     sv.set(r.radius, r.height * 0.8, r.radius * 0.9);
     m4.compose(pv.set(r.x, r.base + r.height * 0.25, r.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
     rockMesh.setMatrixAt(i, m4);
-    rockMesh.setColorAt(i, tint.setHex(0x978f84).multiplyScalar(0.86 + rnd() * 0.2));
+    rockMesh.setColorAt(i, tint.setScalar(0.88 + rnd() * 0.22));
   });
   group.add(rockMesh);
 
@@ -84,8 +112,8 @@ function runwaySurface(): THREE.CanvasTexture {
 /** Asphalt and white markings over each paved area: edges, centreline, thresholds, aiming points. */
 export function buildRunways(world: World): THREE.Group {
   const group = new THREE.Group();
-  const asphalt = new THREE.MeshLambertMaterial({ map: runwaySurface(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const paint = lambert(PALETTE.runwayPaint, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const asphalt = withSurfaceDetail(new THREE.MeshLambertMaterial({ map: runwaySurface(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), 0.5);
+  const paint = lambert(PALETTE.runwayPaint, { detail: 0.6, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
     const hw = a.halfWidth, hl = a.halfLength;
@@ -114,12 +142,12 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   const g = new THREE.Group();
   const hw = a.halfWidth, hl = a.halfLength;
   // Light deck and bold, wide markings so the pad still reads at range; size and collision are unchanged.
-  const deck = lambert(PALETTE.deck, { flatShading: false });
+  const deck = lambert(PALETTE.deck, { detail: 0.8 });
   const slab = roundBox(hw * 2, 1, hl * 2, 0.2, deck);
   slab.position.y = -0.5;
   g.add(slab);
   // Legs with cross-braces between them, and a safety net sloping out below the deck edge.
-  const steel = lambert(PALETTE.deckLegs, { flatShading: false });
+  const steel = lambert(PALETTE.deckLegs, { detail: 0.8 });
   const legs: THREE.BufferGeometry[] = [];
   const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
   for (const [sx, sz] of corners) legs.push(new THREE.CylinderGeometry(0.7, 0.75, 16, 14).translate(sx * (hw - 2), -9, sz * (hl - 2)));
@@ -138,9 +166,9 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
     strip.rotateY((side * Math.PI) / 2).translate(side === 1 ? hw : side === 3 ? -hw : 0, 0, side === 0 ? hl : side === 2 ? -hl : 0);
     net.push(strip);
   }
-  g.add(new THREE.Mesh(mergeGeometries(net)!, lambert(0x3a3d3f, { flatShading: false, side: THREE.DoubleSide, transparent: true, opacity: 0.75 })));
+  g.add(new THREE.Mesh(bothFaces(mergeGeometries(net)!), lambert(0x3a3d3f, { detail: 0.5, transparent: true, opacity: 0.75 })));
   // Markings are merged per colour: two draws for the whole deck.
-  const yellow = lambert(PALETTE.padYellow, { flatShading: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const yellow = lambert(PALETTE.padYellow, { detail: 0.5, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const marks = new Map<THREE.Material, THREE.BufferGeometry[]>([[yellow, []], [paint, []]]);
   const flat = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, z = 0) => marks.get(m)!.push(geo.rotateX(-Math.PI / 2).translate(x, 0.03, z));
   for (const side of [-1, 1]) {
@@ -159,10 +187,10 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
 /** Corner markers and a windsock for each landing area. */
 export function buildAreaMarkers(world: World, windFromDeg: number, windKt: number): THREE.Group {
   const group = new THREE.Group();
-  const markerMat = lambert(PALETTE.marker, { flatShading: false });
+  const markerMat = lambert(PALETTE.marker, { detail: 0.4 });
   // Striped sock: orange and white bands along its length, baked into the vertices.
-  const sockMat = lambert(0xffffff, { side: THREE.DoubleSide, vertexColors: true, flatShading: false });
-  const poleMat = lambert(PALETTE.mast, { flatShading: false });
+  const sockMat = lambert(0xffffff, { vertexColors: true, detail: 0.4 });
+  const poleMat = lambert(PALETTE.mast, { detail: 0.4 });
   // One geometry each for all the cones, poles and socks of the map.
   const cones: THREE.BufferGeometry[] = [], poles: THREE.BufferGeometry[] = [], socks: THREE.BufferGeometry[] = [];
   const m4 = new THREE.Matrix4(), euler = new THREE.Euler();
@@ -186,7 +214,7 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
       band.setAttribute('color', new THREE.BufferAttribute(col, 3));
       bands.push(band);
     }
-    const sockGeo = mergeGeometries(bands)!;
+    const sockGeo = bothFaces(mergeGeometries(bands)!);
     // The sock (wide end at the pole, along +Z) streams downwind: heading = from + 180°.
     const to = ((windFromDeg + 180) * Math.PI) / 180;
     euler.set(windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15), Math.atan2(Math.sin(to), -Math.cos(to)), 0, 'YXZ');

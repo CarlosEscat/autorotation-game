@@ -197,3 +197,35 @@ Every shot stays within the ~190 k triangle budget after trimming (the first ver
 211 k in the vista). Programs are further over the plan's 35: the three plant materials (tree, bush, grass sway) each
 compile their own variants. Stage 5 should fold them, the ground and the buildings into fewer shared materials.
 Production bundle: 800 kB JS, 223.1 kB gzip (+2.3 kB gzip).
+
+## Stage 5 — materials and textures (`stage5/`)
+
+- **Shared surface detail** (`src/render/surfaceDetail.ts`): one 128² generated texture (soft blotches, vertical
+  streaks, fine grain) sampled in world space by one shader chunk — from above on floors and roofs, from the side on
+  walls, where the streaks read as rain stains. Ground, runway, buildings, scenery mountains, helipad, markers and
+  boulders all use it, each at its own strength (a uniform, so they share programs). It replaces the ground's own
+  detail texture. `lambert(colour, { detail })` in `materials.ts` applies it; the flat-shading switch is gone.
+- **Boulders**: lumpy, smooth-shaded shapes with a flattened, seated base, darker at the foot and lichen-tinted on top,
+  instead of dodecahedra.
+- **Fewer shader programs** (47 → 37 with everything compiled):
+  - the shadow map asked for `PCFSoftShadowMap`, which three.js has dropped: it swapped in PCF at the first frame, so
+    every lit shader existed twice (and the console showed a warning on every load since before this work). It now
+    asks for PCF directly; shadows look the same;
+  - trees, bushes and grass share one plant program (sway amount is a uniform);
+  - the windsock and helipad net are drawn with both windings instead of double-sided materials;
+  - rotor blades carry white vertex colours and share the paint program; the runway shares the ground's program.
+- **Precompile**: the day scene's shaders are compiled in the background at start-up (grass included), so the first
+  low pass and the first distant forest no longer stall on a compile. Load event with it: 210–280 ms (one cold
+  reload 410 ms); without it: 185–190 ms. Without it the same shaders compile on the first frame instead.
+
+| | Stage 4 | Stage 5, cruise 1000 ft | Stage 5, low pass |
+| --- | ---: | ---: | ---: |
+| FPS / worst frame | 60 / 17.7 ms | 60 / 17.7 ms | 60 / 17.8 ms |
+| `renderer.render` CPU, median / p95 | 2.9 / 3.5 ms | 3.2 / 3.9 ms | 2.9 / 6.0 ms |
+| Draw calls | 127 | 126 | 26 |
+| Triangles | 145 k | 146 k | 132 k |
+| Programs, everything compiled | 47 | 37 | 37 |
+| Console warnings | 1 | 0 | 0 |
+
+Per shot: vista 141 draws / 192.5 k triangles (the boulders add 8 k), airport 71 / 188 k, heli 101 / 175 k.
+Production bundle: 803 kB JS, 224.2 kB gzip (+1.1 kB gzip). New close-up: `17-rocks.png`.

@@ -127,7 +127,9 @@ export class GameRenderer {
 
     // One small shadow map that follows the helicopter: only the helicopter casts.
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Plain PCF: three.js has dropped PCFSoftShadowMap and silently swaps it for PCF at the first frame, which made
+    // every shader precompiled for the soft type a wasted extra program.
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.sun.castShadow = true;
     const sc = this.sun.shadow.camera;
     sc.left = sc.bottom = -35;
@@ -169,6 +171,11 @@ export class GameRenderer {
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    // Compile every shader of the day scene in the background while the menu is up, so the first flight (and the
+    // first low pass over the grass) does not stall on it. Hidden-by-default things are shown for the call.
+    this.grass.mesh.visible = true;
+    this.renderer.compileAsync(this.scene, this.camera).catch(() => {});
+    this.grass.mesh.visible = false;
   }
 
   private modelFor(spec: AircraftSpec): HelicopterModel {
