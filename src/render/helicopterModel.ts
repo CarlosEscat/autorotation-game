@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { HeliLights, buildHeliLights } from './heliLights';
 import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
 import { buildHeavyExterior } from './heavyModel';
+import { lambert } from './materials';
 
-export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => new THREE.MeshLambertMaterial({ color, flatShading: true, ...extra });
+export const mat = (color: number, extra: THREE.MeshLambertMaterialParameters = {}) => lambert(color, { flatShading: true, ...extra });
 
 /** A box stretched between two points, used for frames, tubes and struts. */
 export function bar(from: THREE.Vector3, to: THREE.Vector3, thickness: number, material: THREE.Material): THREE.Mesh {

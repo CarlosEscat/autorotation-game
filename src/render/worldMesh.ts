@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { LAKE, LandingArea, Surface, World } from '../world/world';
 import { mulberry32, valueNoise } from '../world/rng';
+import { PALETTE, lambert } from './materials';
 
 // Two tones per surface, blended by the same low-frequency noise as the grass.
 const SURFACE_COLORS: Record<Exclude<Surface, 'grass' | 'water'>, [number, number]> = {
@@ -78,7 +79,7 @@ export function buildTerrain(world: World): THREE.Mesh {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
-  return new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
+  return new THREE.Mesh(geo, lambert(0xffffff, { vertexColors: true }));
 }
 
 function mowStripe(a: LandingArea, x: number, z: number) {
@@ -179,7 +180,7 @@ export function buildObstacles(world: World): THREE.Group {
 
   const geos = treeGeometries();
   // Colours live in the vertices; the per-instance colour is only a small brightness/hue variation.
-  const treeMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+  const treeMat = lambert(0xffffff, { vertexColors: true });
 
   const chunks = new Map<string, { cx: number; cz: number; pines: typeof trees; rounds: typeof trees }>();
   for (const t of trees) {
@@ -224,7 +225,7 @@ export function buildObstacles(world: World): THREE.Group {
   }
 
   const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-  const rockMesh = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true }), rocks.length);
+  const rockMesh = new THREE.InstancedMesh(rockGeo, lambert(0xffffff), rocks.length);
   rocks.forEach((r, i) => {
     sv.set(r.radius, r.height * 0.8, r.radius * 0.9);
     m4.compose(pv.set(r.x, r.base + r.height * 0.25, r.z), q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rnd() * 6), sv);
@@ -239,11 +240,11 @@ export function buildObstacles(world: World): THREE.Group {
     const walls = new THREE.BoxGeometry(b.w!, b.height * 0.65, b.d!).translate(0, (b.height * 0.65) / 2, 0);
     const roof = new THREE.CylinderGeometry(0.001, 1, 1, 4, 1).rotateY(Math.PI / 4);
     roof.scale(b.w! * 0.75, b.height * 0.35, b.d! * 0.75).translate(0, b.height * 0.65 + (b.height * 0.35) / 2, 0);
-    for (const [geo, color] of [[walls, b.w! > 12 ? 0xa94a36 : 0xe2d6bb], [roof, 0x5b5652]] as const) {
+    for (const [geo, color] of [[walls, b.w! > 12 ? PALETTE.barnWall : PALETTE.houseWall], [roof, PALETTE.roof]] as const) {
       houses.push(painted(geo, color).rotateY(b.rot ?? 0).translate(b.x, b.base, b.z));
     }
   }
-  if (houses.length) group.add(new THREE.Mesh(mergeGeometries(houses)!, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true })));
+  if (houses.length) group.add(new THREE.Mesh(mergeGeometries(houses)!, lambert(0xffffff, { vertexColors: true })));
   for (const t of world.obstacles.filter((o) => o.kind === 'tower')) group.add(buildTower(t.x, t.base, t.z, t.height));
   return group;
 }
@@ -251,7 +252,7 @@ export function buildObstacles(world: World): THREE.Group {
 /** Airport control tower: concrete shaft, glazed cab, roof, antenna with a red light. */
 function buildTower(x: number, base: number, z: number, height: number): THREE.Group {
   const g = new THREE.Group();
-  const mat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const mat = lambert;
   const box = (w: number, h: number, d: number, y: number, color: number) => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(color));
     m.position.y = y + h / 2;
@@ -259,12 +260,12 @@ function buildTower(x: number, base: number, z: number, height: number): THREE.G
     return m;
   };
   const cab = height - 7;
-  box(11, 4, 8, 0, 0xd2c9b4).position.x = 5; // ground-floor office
-  box(4, cab, 4, 0, 0xddd5c2); // shaft
-  box(7.6, 0.8, 7.6, cab, 0xeeeae0);
-  box(7, 3.6, 7, cab + 0.8, 0x3b5a6e); // glass
-  box(7.8, 0.8, 7.8, cab + 4.4, 0xeeeae0); // roof
-  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 4), mat(0xdddddd));
+  box(11, 4, 8, 0, PALETTE.towerOffice).position.x = 5; // ground-floor office
+  box(4, cab, 4, 0, PALETTE.towerShaft); // shaft
+  box(7.6, 0.8, 7.6, cab, PALETTE.towerTrim);
+  box(7, 3.6, 7, cab + 0.8, PALETTE.towerGlass); // glass
+  box(7.8, 0.8, 7.8, cab + 4.4, PALETTE.towerTrim); // roof
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.8, 4), mat(PALETTE.mast));
   mast.position.y = cab + 6.1;
   const light = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), new THREE.MeshBasicMaterial({ color: 0xff3b2f }));
   light.position.y = cab + 7.1;
@@ -277,8 +278,8 @@ function buildTower(x: number, base: number, z: number, height: number): THREE.G
 /** Asphalt and white markings over each paved area: edges, centreline, thresholds, aiming points. */
 export function buildRunways(world: World): THREE.Group {
   const group = new THREE.Group();
-  const asphalt = new THREE.MeshLambertMaterial({ color: 0x54534f, flatShading: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const paint = new THREE.MeshLambertMaterial({ color: 0xf0ebdf, flatShading: true, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const asphalt = lambert(PALETTE.asphalt, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const paint = lambert(PALETTE.runwayPaint, { polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   for (const a of world.areas.filter((r) => r.surface === 'paved' && r.deckHeight === undefined)) {
     const g = new THREE.Group();
     const hw = a.halfWidth, hl = a.halfLength;
@@ -305,16 +306,16 @@ export function buildRunways(world: World): THREE.Group {
 /** Concrete deck on four legs standing in the lake, with a yellow edge band, touchdown circle and H. */
 function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
   const g = new THREE.Group();
-  const mat = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+  const mat = lambert;
   const hw = a.halfWidth, hl = a.halfLength;
   // Light deck and bold, wide markings so the pad still reads at range; size and collision are unchanged.
-  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(0x8e9294));
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 1, hl * 2), mat(PALETTE.deck));
   slab.position.y = -0.5;
   g.add(slab);
   const legs = [[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => new THREE.CylinderGeometry(0.7, 0.7, 16, 6).translate(sx * (hw - 2), -9, sz * (hl - 2)));
-  g.add(new THREE.Mesh(mergeGeometries(legs)!, mat(0x9a9c9c)));
+  g.add(new THREE.Mesh(mergeGeometries(legs)!, mat(PALETTE.deckLegs)));
   // Markings are merged per colour: two draws for the whole deck.
-  const yellow = new THREE.MeshLambertMaterial({ color: 0xffd23a, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
+  const yellow = lambert(PALETTE.padYellow, { flatShading: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 });
   const marks = new Map<THREE.Material, THREE.BufferGeometry[]>([[yellow, []], [paint, []]]);
   const flat = (geo: THREE.BufferGeometry, m: THREE.Material, x = 0, z = 0) => marks.get(m)!.push(geo.rotateX(-Math.PI / 2).translate(x, 0.03, z));
   for (const side of [-1, 1]) {
@@ -333,9 +334,9 @@ function buildHelipad(a: LandingArea, paint: THREE.Material): THREE.Group {
 /** Corner markers and a windsock for each landing area. */
 export function buildAreaMarkers(world: World, windFromDeg: number, windKt: number): THREE.Group {
   const group = new THREE.Group();
-  const markerMat = new THREE.MeshLambertMaterial({ color: 0xf4efe4, flatShading: true });
-  const sockMat = new THREE.MeshLambertMaterial({ color: 0xf2692a, flatShading: true });
-  const poleMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+  const markerMat = lambert(PALETTE.marker);
+  const sockMat = lambert(PALETTE.windsock, { side: THREE.DoubleSide });
+  const poleMat = lambert(PALETTE.mast, { flatShading: false });
   // One geometry each for all the cones, poles and socks of the map.
   const cones: THREE.BufferGeometry[] = [], poles: THREE.BufferGeometry[] = [], socks: THREE.BufferGeometry[] = [];
   const m4 = new THREE.Matrix4(), euler = new THREE.Euler();
@@ -355,7 +356,6 @@ export function buildAreaMarkers(world: World, windFromDeg: number, windKt: numb
     euler.set(windKt < 2 ? 1.2 : Math.max(0, 0.9 - windKt / 15), Math.atan2(Math.sin(to), -Math.cos(to)), 0, 'YXZ');
     socks.push(sockGeo.applyMatrix4(m4.makeRotationFromEuler(euler).setPosition(p.x, ground + 5.8, p.z)));
   }
-  sockMat.side = THREE.DoubleSide;
   if (cones.length) group.add(new THREE.Mesh(mergeGeometries(cones)!, markerMat), new THREE.Mesh(mergeGeometries(poles)!, poleMat), new THREE.Mesh(mergeGeometries(socks)!, sockMat));
   return group;
 }

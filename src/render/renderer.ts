@@ -7,6 +7,7 @@ import { WaterSpray } from './waterSpray';
 import { FireFx } from './fireFx';
 import { Fire } from '../game/fire';
 import { Gate, Pad, gateY } from '../game/levels';
+import { StatsOverlay } from './statsOverlay';
 import { MOON_DIR, NIGHT, buildNightSky, buildWorldLights } from './night';
 import { LIGHT, nightLights } from '../world/nightLights';
 import { buildAreaMarkers, buildClouds, buildGate, buildPad, buildObstacles, buildRunways, buildSky, buildTargetBeacon, buildTerrain, buildWater } from './worldMesh';
@@ -15,6 +16,8 @@ export type CameraMode = 'cockpit' | 'chase';
 
 const HAZE = 0xe6dcc6;
 const DAY = { hemiSky: 0xbcd4f0, hemiGround: 0x4f5a3c, hemi: 1.0, sun: 0xffdcb0, sunPower: 2.4, cloud: 0xf4eee2, cloudGlow: 0x9a9288, beacon: 0xffe14d, blobShadow: 0.3 };
+/** Exposure under tone mapping, tuned so the scene is as bright as it was without it. */
+const TONE_EXPOSURE = 1.0;
 const SUN_DIR = new THREE.Vector3(-0.6, 0.45, 0.4).normalize();
 const ENDS = [-1, 1] as const;
 const SWEEP_RATE = 12; // rad/s of the cockpit rotor sweep at 100 % NR
@@ -61,6 +64,7 @@ export class GameRenderer {
   private rotorAngle = 0;
   private tailAngle = 0;
   private sweepAngle = 0;
+  private stats: StatsOverlay | null;
   mode: CameraMode = 'chase';
   /** Real shadow map under the helicopter; when off, a blob shadow is drawn instead. */
   shadows = true;
@@ -74,6 +78,10 @@ export class GameRenderer {
     // Smooth upscaling where the pixel ratio cap is below the device's (overrides the retro CSS).
     this.renderer.domElement.style.imageRendering = 'auto';
     container.appendChild(this.renderer.domElement);
+    // Neutral tone mapping rolls off highlights without shifting hues, so colours stay as authored.
+    this.renderer.toneMapping = THREE.NeutralToneMapping;
+    this.renderer.toneMappingExposure = TONE_EXPOSURE;
+    this.stats = StatsOverlay.fromUrl(container);
 
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 6000);
     // Low, warm late-afternoon sun with a soft sky fill and warm haze.
@@ -360,6 +368,7 @@ export class GameRenderer {
     this.nightSky?.position.set(s.pos.x, 0, s.pos.z);
     if (this.night) this.animateNight(s);
     this.renderer.render(this.scene, this.camera);
+    this.stats?.frame(this.renderer);
   }
 
   /** Flashing and direction-dependent lights. Flashes follow simulation time, so a paused game shows them frozen. */
