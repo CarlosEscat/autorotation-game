@@ -59,8 +59,10 @@ export function buildNightSky(moonDir: THREE.Vector3): THREE.Mesh {
   return sky;
 }
 
+let glow: THREE.Texture | null = null;
 /** Soft round glow, drawn once and shared by every light. */
 function glowTexture(): THREE.Texture {
+  if (glow) return glow;
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
@@ -77,19 +79,23 @@ function glowTexture(): THREE.Texture {
   // No mipmaps: a far light is a few pixels wide and must keep its bright core, not the average of the whole glow.
   tex.generateMipmaps = false;
   tex.minFilter = THREE.LinearFilter;
-  return tex;
+  return (glow = tex);
 }
 
-/** Glowing points that never light anything. Far lights keep a few pixels so a runway still reads from across the map. */
-function glowMaterial(map: THREE.Texture, vertexColors: boolean): THREE.PointsMaterial {
-  const m = new THREE.PointsMaterial({ map, size: 14, sizeAttenuation: true, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+/**
+ * Glowing points that never light anything. Far lights keep a few pixels so a runway still reads from across the map;
+ * near ones are capped so a light beside the skids does not fill the view.
+ */
+function glowMaterial(vertexColors: boolean, size = 14, minPx = 8, maxPx = 30): THREE.PointsMaterial {
+  const m = new THREE.PointsMaterial({ map: glowTexture(), size, sizeAttenuation: true, vertexColors, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
   m.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace('#include <logdepthbuf_vertex>', 'gl_PointSize = max(gl_PointSize, 8.0);\n#include <logdepthbuf_vertex>');
+    shader.vertexShader = shader.vertexShader.replace('#include <logdepthbuf_vertex>', `gl_PointSize = clamp(gl_PointSize, ${minPx.toFixed(1)}, ${maxPx.toFixed(1)});\n#include <logdepthbuf_vertex>`);
   };
   return m;
 }
 
-const pointsOf = (lights: NightLight[], material: THREE.PointsMaterial, dim: (l: NightLight) => number = () => 1) => {
+type Glow = Pick<NightLight, 'x' | 'y' | 'z' | 'color'>;
+const pointsOf = <L extends Glow>(lights: L[], material: THREE.PointsMaterial, dim: (l: L) => number = () => 1) => {
   const geo = new THREE.BufferGeometry();
   const c = new THREE.Color();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(lights.flatMap((l) => [l.x, l.y, l.z]), 3));
@@ -102,12 +108,19 @@ const pointsOf = (lights: NightLight[], material: THREE.PointsMaterial, dim: (l:
  * so each end can be turned green or red by setting its material colour.
  */
 export function buildWorldLights(lights: NightLight[]): { group: THREE.Group; ends: Record<-1 | 1, THREE.Points> } {
-  const map = glowTexture();
   const group = new THREE.Group();
-  const steady = pointsOf(lights.filter((l) => l.kind !== 'runwayEnd'), glowMaterial(map, true), (l) => (l.kind === 'window' ? 0.6 : 1));
-  const end = (e: -1 | 1) => pointsOf(lights.filter((l) => l.kind === 'runwayEnd' && l.end === e), glowMaterial(map, false));
+  const steady = pointsOf(lights.filter((l) => l.kind !== 'runwayEnd'), glowMaterial(true), (l) => (l.kind === 'window' ? 0.6 : 1));
+  const end = (e: -1 | 1) => pointsOf(lights.filter((l) => l.kind === 'runwayEnd' && l.end === e), glowMaterial(false));
   const ends = { [-1]: end(-1), 1: end(1) } as Record<-1 | 1, THREE.Points>;
   for (const e of [-1, 1] as const) (ends[e].material as THREE.PointsMaterial).color.setHex(LIGHT.green);
   group.add(steady, ends[-1], ends[1]);
   return { group, ends };
+}
+
+/** Small glows fixed to a helicopter: positions are in the model's own space. */
+export function buildGlows(lights: Glow[], size: number): THREE.Points {
+  const p = pointsOf(lights, glowMaterial(true, size, 3));
+  // The points sit far from the model's origin on a big airframe; never cull them by a stale bound.
+  p.frustumCulled = false;
+  return p;
 }

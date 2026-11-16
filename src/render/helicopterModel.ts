@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HeliLights, buildHeliLights } from './heliLights';
 import { AIRCRAFT, AIRCRAFT_TYPES, AircraftId, AircraftSpec } from '../sim/aircraft';
 import { buildHeavyExterior } from './heavyModel';
 
@@ -29,6 +30,8 @@ export interface HelicopterModel {
   cyclic: THREE.Group;
   collective: THREE.Group;
   eye: THREE.Object3D;
+  /** Night only: position lights, beacon, landing light and dashboard glow. */
+  lights: HeliLights;
 }
 
 /** The light trainer's airframe; returns the group and its tail rotor. */
@@ -207,6 +210,8 @@ export function buildHelicopter(id: AircraftId = 'light'): HelicopterModel {
     if (o instanceof THREE.Mesh) o.material = shadowOnly;
   });
 
-  root.add(exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep);
-  return { root, exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep, tailRotor, cyclic, collective, eye };
+  const lights = buildHeliLights(id);
+  cockpit.add(lights.panelGlow);
+  root.add(exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep, lights.group, lights.spot, lights.spot.target);
+  return { lights, root, exterior, shadowProxy, cockpit, rotor, rotorDisc, rotorSweep, tailRotor, cyclic, collective, eye };
 }

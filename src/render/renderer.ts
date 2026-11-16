@@ -129,6 +129,7 @@ export class GameRenderer {
       const built = (m = buildHelicopter(id));
       built.root.traverse((o) => (o.castShadow = o !== built.rotorDisc));
       built.rotorSweep.traverse((o) => (o.castShadow = false));
+      built.lights.group.traverse((o) => (o.castShadow = false));
       this.scene.add(built.root);
       this.models.set(spec, built);
     }
@@ -143,7 +144,17 @@ export class GameRenderer {
     this.heliSpec = spec;
     this.heli.root.visible = true;
     this.shadow.scale.setScalar(spec.rotorRadius / AIRCRAFT.rotorRadius);
+    this.syncHeliLights();
     this.setMode(this.mode);
+  }
+
+  /** Only the helicopter being flown shows lights, and only at night. */
+  private syncHeliLights() {
+    for (const m of this.models.values()) {
+      const on = this.night && m === this.heli;
+      m.lights.spot.visible = m.lights.panelGlow.visible = on;
+      m.lights.group.visible = on;
+    }
   }
 
   /** Shows the fire of the current flight (null clears it). */
@@ -170,6 +181,7 @@ export class GameRenderer {
     if (on && !this.worldLights) this.scene.add((this.worldLights = buildWorldLights(nightLights(this.world))).group);
     if (this.worldLights) this.worldLights.group.visible = on;
     if (this.towerLight) this.towerLight.visible = true;
+    this.syncHeliLights();
     this.sky.visible = !on;
     const horizon = on ? NIGHT.horizon : HAZE;
     this.scene.fog!.color.setHex(horizon);
@@ -349,6 +361,10 @@ export class GameRenderer {
   /** Flashing and direction-dependent lights. Flashes follow simulation time, so a paused game shows them frozen. */
   private animateNight(s: HelicopterState) {
     if (this.towerLight) this.towerLight.visible = s.time % 2 < 1.2;
+    // From the pilot's seat the glows would hang in the cabin; the landing light still shines.
+    const l = this.heli.lights;
+    l.group.visible = this.mode !== 'cockpit';
+    l.beacon.visible = s.time % 1 < 0.15;
     const rw = this.runway, wl = this.worldLights;
     if (!rw || !wl) return;
     // A runway end shows green to a pilot approaching it from outside, red to one already past it.
